@@ -77,7 +77,7 @@ int main()
     printf("Printing the 8x8 of image[] (matrix coming from the jpeg image)\n");
     for (int i = 0; i < BLOCK_SIZE; i++){
         for (int j = 0; j < BLOCK_SIZE; j++){
-            printf("%f ", image_matrix_float[i * IMAGE_SIZE + j]);
+            printf("%f ", image_matrix_float[i * width + j]);
         }
         printf("\n");
     }
@@ -142,12 +142,12 @@ int main()
 
     // copy device memory to host
     // result = d_C
-    CHECK_CUDA(cudaMemcpy(result, d_C, IMAGE_SIZE * IMAGE_SIZE * sizeof(float), cudaMemcpyDeviceToHost));
+    CHECK_CUDA(cudaMemcpy(result, d_C, width * height * sizeof(float), cudaMemcpyDeviceToHost));
 
     printf("Printing the 8x8 of result[] (matrix coming from the dct)\n");
     for (int i = 0; i < BLOCK_SIZE; i++){
         for (int j = 0; j < BLOCK_SIZE; j++){
-            printf("%f ", result[i * IMAGE_SIZE + j]);
+            printf("%f ", result[i * width + j]);
         }
         printf("\n");
     }
@@ -163,12 +163,12 @@ int main()
 
     // copy device memory to host
     // result = d_E
-    CHECK_CUDA(cudaMemcpy(result, d_E, IMAGE_SIZE * IMAGE_SIZE * sizeof(float), cudaMemcpyDeviceToHost));
+    CHECK_CUDA(cudaMemcpy(result, d_E, width * height * sizeof(float), cudaMemcpyDeviceToHost));
 
     printf("Printing the 8x8 of result[] (matrix coming from the idct)\n");
     for (int i = 0; i < BLOCK_SIZE; i++){
         for (int j = 0; j < BLOCK_SIZE; j++){
-            printf("%f ", result[i * IMAGE_SIZE + j]);
+            printf("%f ", result[i * width + j]);
         }
         printf("\n");
     }
