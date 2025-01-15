@@ -75,24 +75,27 @@ int main()
     free(image_matrix);
 
     printf("Printing the 8x8 of image[] (matrix coming from the jpeg image)\n");
-    for (int i = 0; i < BLOCK_SIZE; i++)
-        for (int j = 0; j < BLOCK_SIZE; j++)
+    for (int i = 0; i < BLOCK_SIZE; i++){
+        for (int j = 0; j < BLOCK_SIZE; j++){
             printf("%f ", image_matrix_float[i * IMAGE_SIZE + j]);
+        }
+        printf("\n");
+    }
     printf("\n\n");
 
     /* image_matrix
     float image_matrix[BLOCK_SIZE * BLOCK_SIZE] = {
-            16, 11, 10, 16, 24, 40, 51, 61,
-            12, 12, 14, 19, 26, 58, 60, 55,
-            14, 13, 16, 24, 40, 57, 69, 56,
-            14, 17, 22, 29, 51, 87, 80, 62,
-            18, 22, 37, 56, 68, 109, 103, 77,
-            24, 35, 55, 64, 81, 104, 113, 92,
-            49, 64, 78, 87, 103, 121, 120, 101,
-            72, 92, 95, 98, 112, 100, 103, 99};
+            156, 159, 158, 155, 158, 156, 159, 158,
+            160, 154, 157, 158, 157, 159, 158, 158,
+            156, 159, 157, 155, 157, 157, 160, 158,
+            160, 154, 157, 158, 157, 160, 158, 158,
+            157, 152, 155, 158, 159, 155, 156, 155,
+            155, 155, 155, 157, 156, 159, 152, 158,
+            156, 154, 157, 156, 153, 155, 154, 155,
+            159, 159, 156, 158, 156, 159, 157, 160};
     */
 
-    // Quantization matrix
+    // Quantization matrix (fare __device__ )
     float quant_matrix[BLOCK_SIZE * BLOCK_SIZE] = {
             16, 11, 10, 16, 24, 40, 51, 61,
             12, 12, 14, 19, 26, 58, 60, 55,
@@ -142,11 +145,13 @@ int main()
     CHECK_CUDA(cudaMemcpy(result, d_C, IMAGE_SIZE * IMAGE_SIZE * sizeof(float), cudaMemcpyDeviceToHost));
 
     printf("Printing the 8x8 of result[] (matrix coming from the dct)\n");
-    for (int i = 0; i < BLOCK_SIZE; i++)
-        for (int j = 0; j < BLOCK_SIZE; j++)
+    for (int i = 0; i < BLOCK_SIZE; i++){
+        for (int j = 0; j < BLOCK_SIZE; j++){
             printf("%f ", result[i * IMAGE_SIZE + j]);
+        }
+        printf("\n");
+    }
     printf("\n\n");
-
 
     // d_E = result of the idct applied on the block_image compressed
     float *d_E;
@@ -161,9 +166,12 @@ int main()
     CHECK_CUDA(cudaMemcpy(result, d_E, IMAGE_SIZE * IMAGE_SIZE * sizeof(float), cudaMemcpyDeviceToHost));
 
     printf("Printing the 8x8 of result[] (matrix coming from the idct)\n");
-    for (int i = 0; i < BLOCK_SIZE; i++)
-        for (int j = 0; j < BLOCK_SIZE; j++)
+    for (int i = 0; i < BLOCK_SIZE; i++){
+        for (int j = 0; j < BLOCK_SIZE; j++){
             printf("%f ", result[i * IMAGE_SIZE + j]);
+        }
+        printf("\n");
+    }
     printf("\n\n");
 
     // Salva l'immagine in formato JPEG
@@ -366,26 +374,26 @@ C[global] =  A[global] / quantization_matrix[threadIdx.x * BLOCK_SIZE + threadId
 // Kernel CUDA per la divisione elemento per elemento
 __global__ void divide_matrices(const float* A, const float* B, float* C, int size) {
     // Calcola l'indice globale del thread
-    int Id_x = blockIdx.x * blockDim.x + threadIdx.x
-    int Id_y = blockIdx.y * blockDim.y + threadIdx.y
-    int global = Id_y * gridDim.x * blockDim.x + Id_x
+    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
+    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
+    int global = Id_y * gridDim.x * blockDim.x + Id_x;
 
     // Controlla che l'indice sia all'interno dei limiti
     if (global < size) {
-        C[global] =  A[global] / B[threadIdx.x * blockDim.x + threadIdx.y]
+        C[global] =  A[global] / B[threadIdx.x * blockDim.x + threadIdx.y];
     }
 }
 
 // Kernel CUDA per la moltiplicazione elemento per elemento
 __global__ void multiply_matrices(const float* A, const float* B, float* C, int size) {
     // Calcola l'indice globale del thread
-    int Id_x = blockIdx.x * blockDim.x + threadIdx.x
-    int Id_y = blockIdx.y * blockDim.y + threadIdx.y
-    int global = Id_y * gridDim.x * blockDim.x + Id_x
+    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
+    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
+    int global = Id_y * gridDim.x * blockDim.x + Id_x;
 
     // Controlla che l'indice sia all'interno dei limiti
     if (global < size) {
-        C[global] =  A[global] * B[threadIdx.x * blockDim.x + threadIdx.y]
+        C[global] =  A[global] * B[threadIdx.x * blockDim.x + threadIdx.y];
     }
 }
 
@@ -438,10 +446,11 @@ void dct_all_blocks(const float *image_matrix, int img_height, int img_width, co
     CHECK_CUDA(cudaMemcpy(d_Q_matrix, q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float), cudaMemcpyHostToDevice));
 
     // Configurazione della griglia e dei blocchi
-    int gridx = img_width / 8
+    int gridx = img_width / 8;
     dim3 blockDim(8,8);
     dim3 gridDim(32,32);
 
+    // CHECK_CUDA(cudaMemcpy(result, temp2, img_width * img_height * sizeof(float), cudaMemcpyDeviceToDevice));
     // Lancio del kernel quantizzazione
     divide_matrices<<<gridDim,blockDim>>>(temp2, d_Q_matrix, result, img_width * img_height);
 
@@ -478,12 +487,13 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
     CHECK_CUDA(cudaMemcpy(d_Q_matrix, q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float), cudaMemcpyHostToDevice));
 
     // Configurazione della griglia e dei blocchi
-    int gridx = img_width / 8
+    int gridx = img_width / 8;
     dim3 blockDim(8,8);
     dim3 gridDim(32,32);
 
     // Lancio del kernel de-quantizzazione
     multiply_matrices<<<gridDim,blockDim>>>(image_matrix, d_Q_matrix, temp2, img_width * img_height);
+    // CHECK_CUDA(cudaMemcpy(temp2, image_matrix, img_width * img_height * sizeof(float), cudaMemcpyDeviceToDevice));
 
     // Itera sui blocchi 8x8 - applica la IDCT
     for (int block_row = 0; block_row < img_height; block_row += BLOCK_SIZE)
@@ -503,7 +513,9 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
             // Compute (transform_matrix.T @ image_block) @ transform_matrix
             CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE,
                                      &alpha, temp1, BLOCK_SIZE, transform_matrix, BLOCK_SIZE,
-                                     &beta, temp2, img_width));
+                                     &beta, result_block, img_width));
+
+
         }
     }
 
