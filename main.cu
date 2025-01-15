@@ -30,6 +30,12 @@
 #define BLOCK_SIZE 8
 #define IMAGE_SIZE 256
 
+// Kernel CUDA per la divisione elemento per elemento
+__global__ void divide_matrices(const float* A, const float* B, float* C, int size);
+
+// Kernel CUDA per la divisione elemento per elemento
+__global__ void multiply_matrices(const float* A, const float* B, float* C, int size);
+
 // Host function to load image as matrix
 static unsigned char *load_jpeg_as_matrix(const char *filename, int *width, int *height, int *channels);
 
@@ -351,16 +357,49 @@ void convertToUnsignedChar(const float *image_float, unsigned char *image_char, 
     }
 }
 
+/*quantization_matrix[8][8]
+Id_x = gridId.x * blockDim.x + threadIdx.x
+Id_y = gridID.y * blockDim.y + threadIdx.y
+global = Id_y * gridDim.x * blockDim.x + Id_x
+C[global] =  A[global] / quantization_matrix[threadIdx.x * BLOCK_SIZE + threadIdx.y]*/
+
+// Kernel CUDA per la divisione elemento per elemento
+__global__ void divide_matrices(const float* A, const float* B, float* C, int size) {
+    // Calcola l'indice globale del thread
+    int Id_x = gridId.x * blockDim.x + threadIdx.x
+    int Id_y = gridID.y * blockDim.y + threadIdx.y
+    int global = Id_y * gridDim.x * blockDim.x + Id_x
+
+    // Controlla che l'indice sia all'interno dei limiti
+    if (global < size) {
+        C[global] =  A[global] / B[threadIdx.x * blockDim.x + threadIdx.y]
+    }
+}
+
+// Kernel CUDA per la moltiplicazione elemento per elemento
+__global__ void multiply_matrices(const float* A, const float* B, float* C, int size) {
+    // Calcola l'indice globale del thread
+    int Id_x = gridId.x * blockDim.x + threadIdx.x
+    int Id_y = gridID.y * blockDim.y + threadIdx.y
+    int global = Id_y * gridDim.x * blockDim.x + Id_x
+
+    // Controlla che l'indice sia all'interno dei limiti
+    if (global < size) {
+        C[global] =  A[global] * B[threadIdx.x * blockDim.x + threadIdx.y]
+    }
+}
+
 void dct_all_blocks(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle)
 {
     float alpha = 1.0f;
     float beta = 0.0f;
 
     // Pre-alloca memoria GPU per i blocchi temporanei
-    float *temp1;
+    float *temp1, *temp2;
     CHECK_CUDA(cudaMalloc(&temp1, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
+    CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
 
-    // Itera sui blocchi 8x8
+    // Itera sui blocchi 8x8 - applica la DCT
     for (int block_row = 0; block_row < img_height; block_row += BLOCK_SIZE)
     {
         for (int block_col = 0; block_col < img_width; block_col += BLOCK_SIZE)
@@ -368,23 +407,48 @@ void dct_all_blocks(const float *image_matrix, int img_height, int img_width, co
 
             // Calcola l'offset del blocco corrente
             const float *image_block = image_matrix + block_row * img_width + block_col;
-            float *result_block = result + block_row * img_width + block_col;
+            float *result_block = temp2 + block_row * img_width + block_col;
 
             // Calcola transform_matrix @ image_block
-            CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE,
+            CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE,
                                      &alpha, transform_matrix, BLOCK_SIZE, image_block, img_width,
                                      &beta, temp1, BLOCK_SIZE));
 
             // Calcola temp1 @ transform_matrix.T
-            CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE,
+            CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE,
                                      &alpha, temp1, BLOCK_SIZE, transform_matrix, BLOCK_SIZE,
                                      &beta, result_block, img_width));
-
         }
     }
 
+    // Applicazione della quantizzazione
+    float q_matrix[BLOCK_SIZE * BLOCK_SIZE] = {
+            16, 11, 10, 16, 24, 40, 51, 61,
+            12, 12, 14, 19, 26, 58, 60, 55,
+            14, 13, 16, 24, 40, 57, 69, 56,
+            14, 17, 22, 29, 51, 87, 80, 62,
+            18, 22, 37, 56, 68, 109, 103, 77,
+            24, 35, 55, 64, 81, 104, 113, 92,
+            49, 64, 78, 87, 103, 121, 120, 101,
+            72, 92, 95, 98, 112, 100, 103, 99};
+
+    // alloca quant_matrix on device
+    float *d_Q_matrix;
+    CHECK_CUDA(cudaMalloc(&d_Q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
+    CHECK_CUDA(cudaMemcpy(d_Q_matrix, q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float), cudaMemcpyHostToDevice));
+
+    // Configurazione della griglia e dei blocchi
+    int gridx = img_width / 8
+    dim3 blockDim(8,8);
+    dim3 gridDim(32,32);
+
+    // Lancio del kernel quantizzazione
+    divide_matrices<<<gridDim,blockDim>>>(temp2, d_Q_matrix, result, img_width * img_height);
+
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp1));
+    CHECK_CUDA(cudaFree(temp2));
+    CHECK_CUDA(cudaFree(d_Q_matrix));
 }
 
 void idct_all_blocks(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle)
@@ -393,32 +457,58 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
     float beta = 0.0f;
 
     // Pre-alloca memoria GPU per i blocchi temporanei
-    float *temp1;
+    float *temp1, *temp2;
     CHECK_CUDA(cudaMalloc(&temp1, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
+    CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
 
-    // Itera sui blocchi 8x8
+    // Applicazione della de-quantizzazione
+    float q_matrix[BLOCK_SIZE * BLOCK_SIZE] = {
+            16, 11, 10, 16, 24, 40, 51, 61,
+            12, 12, 14, 19, 26, 58, 60, 55,
+            14, 13, 16, 24, 40, 57, 69, 56,
+            14, 17, 22, 29, 51, 87, 80, 62,
+            18, 22, 37, 56, 68, 109, 103, 77,
+            24, 35, 55, 64, 81, 104, 113, 92,
+            49, 64, 78, 87, 103, 121, 120, 101,
+            72, 92, 95, 98, 112, 100, 103, 99};
+
+    // alloca quant_matrix on device
+    float *d_Q_matrix;
+    CHECK_CUDA(cudaMalloc(&d_Q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
+    CHECK_CUDA(cudaMemcpy(d_Q_matrix, q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float), cudaMemcpyHostToDevice));
+
+    // Configurazione della griglia e dei blocchi
+    int gridx = img_width / 8
+    dim3 blockDim(8,8);
+    dim3 gridDim(32,32);
+
+    // Lancio del kernel de-quantizzazione
+    multiply_matrices<<<gridDim,blockDim>>>(image_matrix, d_Q_matrix, temp2, img_width * img_height);
+
+    // Itera sui blocchi 8x8 - applica la IDCT
     for (int block_row = 0; block_row < img_height; block_row += BLOCK_SIZE)
     {
         for (int block_col = 0; block_col < img_width; block_col += BLOCK_SIZE)
         {
 
             // Calcola l'offset del blocco corrente
-            const float *image_block = image_matrix + block_row * img_width + block_col;
+            const float *image_block = temp2 + block_row * img_width + block_col;
             float *result_block = result + block_row * img_width + block_col;
 
             // Compute transform_matrix.T @ image_block
-            CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE,
+            CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE,
                                      &alpha, transform_matrix, BLOCK_SIZE, image_block, img_width,
                                      &beta, temp1, BLOCK_SIZE));
 
             // Compute (transform_matrix.T @ image_block) @ transform_matrix
-            CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE,
+            CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE,
                                      &alpha, temp1, BLOCK_SIZE, transform_matrix, BLOCK_SIZE,
-                                     &beta, result_block, img_width));
-
+                                     &beta, temp2, img_width));
         }
     }
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp1));
+    CHECK_CUDA(cudaFree(temp2));
+    CHECK_CUDA(cudaFree(d_Q_matrix));
 }
