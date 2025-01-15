@@ -366,8 +366,8 @@ C[global] =  A[global] / quantization_matrix[threadIdx.x * BLOCK_SIZE + threadId
 // Kernel CUDA per la divisione elemento per elemento
 __global__ void divide_matrices(const float* A, const float* B, float* C, int size) {
     // Calcola l'indice globale del thread
-    int Id_x = gridId.x * blockDim.x + threadIdx.x
-    int Id_y = gridID.y * blockDim.y + threadIdx.y
+    int Id_x = blockIdx.x * blockDim.x + threadIdx.x
+    int Id_y = blockIdx.y * blockDim.y + threadIdx.y
     int global = Id_y * gridDim.x * blockDim.x + Id_x
 
     // Controlla che l'indice sia all'interno dei limiti
@@ -379,8 +379,8 @@ __global__ void divide_matrices(const float* A, const float* B, float* C, int si
 // Kernel CUDA per la moltiplicazione elemento per elemento
 __global__ void multiply_matrices(const float* A, const float* B, float* C, int size) {
     // Calcola l'indice globale del thread
-    int Id_x = gridId.x * blockDim.x + threadIdx.x
-    int Id_y = gridID.y * blockDim.y + threadIdx.y
+    int Id_x = blockIdx.x * blockDim.x + threadIdx.x
+    int Id_y = blockIdx.y * blockDim.y + threadIdx.y
     int global = Id_y * gridDim.x * blockDim.x + Id_x
 
     // Controlla che l'indice sia all'interno dei limiti
