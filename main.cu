@@ -43,13 +43,17 @@ static unsigned char *load_jpeg_as_matrix(const char *filename, int *width, int 
 // Host function to save matrix as jpeg
 int save_grayscale_jpeg(const char *filename, unsigned char *image_matrix, int width, int height, int quality);
 
+// Utils
 void convertToFloat(unsigned char *input, float *output, int size);
-
 void convertToUnsignedChar(const float *image_float, unsigned char *image_char, int size);
 
+// Using CUBLAS HANDLE to compute the DCT and the IDCT
 void dct_all_blocks(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
-
 void idct_all_blocks(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
+
+// Using cuda kernels to compute the DCT and the IDCT
+void dct_all_blocks_cuda(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
+void idct_all_blocks_cuda(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
 
 int main()
 {
@@ -506,6 +510,7 @@ void dct_all_blocks(float *image_matrix, int img_height, int img_width, const fl
     dim3 blockDim(CUDA_BLOCK_SIZE,CUDA_BLOCK_SIZE);
     dim3 gridDim(gridx,gridy);
 
+    // subsampling (--128)
     sub_matrix_scalar<<<gridDim,blockDim>>>(image_matrix, 128, image_matrix, img_width * img_height);
 
     // Itera sui blocchi 8x8 - applica la DCT
@@ -615,6 +620,105 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
         }
     }
 
+    // inverse of subsampling (++128)
+    add_matrix_scalar<<<gridDim,blockDim>>>(result, 128, result, img_width * img_height);
+
+    // Libera memoria GPU
+    CHECK_CUDA(cudaFree(temp1));
+    CHECK_CUDA(cudaFree(temp2));
+    CHECK_CUDA(cudaFree(d_Q_matrix));
+}
+
+void dct_all_blocks_cuda(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle)
+{
+    float alpha = 1.0f;
+    float beta = 0.0f;
+
+    // Pre-alloca memoria GPU per i blocchi temporanei
+    float *temp1, *temp2;
+    CHECK_CUDA(cudaMalloc(&temp1, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
+    CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
+
+    // Configurazione della griglia e dei blocchi
+    #define CUDA_BLOCK_SIZE 8
+    int gridx = img_width / CUDA_BLOCK_SIZE;
+    int gridy = img_width / CUDA_BLOCK_SIZE;
+    dim3 blockDim(CUDA_BLOCK_SIZE,CUDA_BLOCK_SIZE);
+    dim3 gridDim(gridx,gridy);
+
+    // subsampling (--128)
+    sub_matrix_scalar<<<gridDim,blockDim>>>(image_matrix, 128, image_matrix, img_width * img_height);
+
+    // applica la DCT
+    cuda_matrix_dct<<<gridDim,blockDim>>>(image_matrix,transform_matrix,temp2);
+
+    // Applicazione della quantizzazione
+    float q_matrix[BLOCK_SIZE * BLOCK_SIZE] = {
+            16, 11, 10, 16, 24, 40, 51, 61,
+            12, 12, 14, 19, 26, 58, 60, 55,
+            14, 13, 16, 24, 40, 57, 69, 56,
+            14, 17, 22, 29, 51, 87, 80, 62,
+            18, 22, 37, 56, 68, 109, 103, 77,
+            24, 35, 55, 64, 81, 104, 113, 92,
+            49, 64, 78, 87, 103, 121, 120, 101,
+            72, 92, 95, 98, 112, 100, 103, 99};
+
+    // alloca quant_matrix on device
+    float *d_Q_matrix;
+    CHECK_CUDA(cudaMalloc(&d_Q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
+    CHECK_CUDA(cudaMemcpy(d_Q_matrix, q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float), cudaMemcpyHostToDevice));
+
+    // CHECK_CUDA(cudaMemcpy(result, temp2, img_width * img_height * sizeof(float), cudaMemcpyDeviceToDevice));
+    // Lancio del kernel quantizzazione
+    divide_matrices<<<gridDim,blockDim>>>(temp2, d_Q_matrix, result, img_width * img_height);
+
+    // Libera memoria GPU
+    CHECK_CUDA(cudaFree(temp1));
+    CHECK_CUDA(cudaFree(temp2));
+    CHECK_CUDA(cudaFree(d_Q_matrix));
+}
+
+void idct_all_blocks_cuda(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle)
+{
+    float alpha = 1.0f;
+    float beta = 0.0f;
+
+    // Pre-alloca memoria GPU per i blocchi temporanei
+    float *temp1, *temp2;
+    CHECK_CUDA(cudaMalloc(&temp1, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
+    CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
+
+    // Applicazione della de-quantizzazione
+    float q_matrix[BLOCK_SIZE * BLOCK_SIZE] = {
+            16, 11, 10, 16, 24, 40, 51, 61,
+            12, 12, 14, 19, 26, 58, 60, 55,
+            14, 13, 16, 24, 40, 57, 69, 56,
+            14, 17, 22, 29, 51, 87, 80, 62,
+            18, 22, 37, 56, 68, 109, 103, 77,
+            24, 35, 55, 64, 81, 104, 113, 92,
+            49, 64, 78, 87, 103, 121, 120, 101,
+            72, 92, 95, 98, 112, 100, 103, 99};
+
+    // alloca quant_matrix on device
+    float *d_Q_matrix;
+    CHECK_CUDA(cudaMalloc(&d_Q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
+    CHECK_CUDA(cudaMemcpy(d_Q_matrix, q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float), cudaMemcpyHostToDevice));
+
+    // Configurazione della griglia e dei blocchi
+    #define CUDA_BLOCK_SIZE 8
+    int gridx = img_width / CUDA_BLOCK_SIZE;
+    int gridy = img_width / CUDA_BLOCK_SIZE;
+    dim3 blockDim(CUDA_BLOCK_SIZE,CUDA_BLOCK_SIZE);
+    dim3 gridDim(gridx,gridy);
+
+    // Lancio del kernel de-quantizzazione
+    multiply_matrices<<<gridDim,blockDim>>>(image_matrix, d_Q_matrix, temp2, img_width * img_height);
+    // CHECK_CUDA(cudaMemcpy(temp2, image_matrix, img_width * img_height * sizeof(float), cudaMemcpyDeviceToDevice));
+
+    // applica la IDCT
+    cuda_matrix_idct<<<gridDim,blockDim>>>(temp2,transform_matrix,result);
+
+    // inverse of subsampling (++128)
     add_matrix_scalar<<<gridDim,blockDim>>>(result, 128, result, img_width * img_height);
 
     // Libera memoria GPU
