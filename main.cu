@@ -47,7 +47,7 @@ void convertToFloat(unsigned char *input, float *output, int size);
 
 void convertToUnsignedChar(const float *image_float, unsigned char *image_char, int size);
 
-void dct_all_blocks(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
+void dct_all_blocks(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
 
 void idct_all_blocks(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
 
@@ -356,8 +356,8 @@ void convertToFloat(unsigned char *input, float *output, int size)
 // Convert a float image matrix to unsigned char image matrix
 void convertToUnsignedChar(const float *image_float, unsigned char *image_char, int size) {
     for (int i = 0; i < size; i++) {
-        //image_char[i] = (unsigned char)fminf(fmaxf(image_float[i], 0.0f), 255.0f); // Clamp tra 0 e 255
-        image_char[i] = (unsigned char)image_float[i]; // Clamp tra 0 e 255
+        image_char[i] = (unsigned char)fminf(fmaxf(image_float[i], 0.0f), 255.0f); // Clamp tra 0 e 255
+        //image_char[i] = (unsigned char)image_float[i]; // Clamp tra 0 e 255
     }
 }
 
@@ -426,7 +426,7 @@ __global__ void multiply_matrices(const float* A, const float* B, float* C, int 
  * result = TRASFORM_MATRIX @ IMAGE_MATRIX
  * result = result @ TRANSFORM_MATRIX.T
  * */
-__global__ void cuda_matrix_dct(const float* image_matrix, const float* transform_matrix, float* result_g, int size) {
+__global__ void cuda_matrix_dct(const float* image_matrix, const float* transform_matrix, float* result) {
     // Calcola l'indice globale del thread
     int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
     int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -435,7 +435,7 @@ __global__ void cuda_matrix_dct(const float* image_matrix, const float* transfor
 
     // result = transform_matrix @ image_matrix
     // result = transform_matrix[righe] @ image_matrix[colonne]
-    for(i=0;i<blockDim.x;i++){
+    for(int i=0;i<blockDim.x;i++){
         sums += transform_matrix[threadIdx.y * blockDim.x + i] * image_matrix[i * (gridDim.x * blockDim.x) + Id_y];
     }
     result[Id_y * gridDim.x * blockDim.x + Id_x] = sums;
@@ -446,7 +446,7 @@ __global__ void cuda_matrix_dct(const float* image_matrix, const float* transfor
     // result = result(precedente) @ transform_matrix.T (trasposta)
     // result = result(precedente)[righe] @ transform_matrix[righe] (perchè la trasposta)
     // result shared per fare 8 letture shared
-    for(i=0;i<blockDim.x;i++){
+    for(int i=0;i<blockDim.x;i++){
         sums += result[Id_y * (gridDim.x * blockDim.x) + i] * transform_matrix[threadIdx.y * blockDim.x + i];
     }
     // Non possono sovrascrivere prima che abbiano finito tutto altrimenti leggerebbero una riga sbagliata
@@ -462,7 +462,7 @@ __global__ void cuda_matrix_dct(const float* image_matrix, const float* transfor
  * result = TRANSFORM_MATRIX.T @ DCT_MATRIX
  * result = result @ TRANSFORM_MATRIX
  * */
-__global__ void cuda_matrix_idct(const float* image_matrix, const float* transform_matrix, float* result, int size) {
+__global__ void cuda_matrix_idct(const float* image_matrix, const float* transform_matrix, float* result) {
     // Calcola l'indice globale del thread
     int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
     int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -471,7 +471,7 @@ __global__ void cuda_matrix_idct(const float* image_matrix, const float* transfo
 
     // result = transform_matrix.T @ dct_matrix
     // result = transform_matrix[colonne](x trasposta) @ image_matrix[colonne]
-    for(i=0;i<blockDim.x;i++){
+    for(int i=0;i<blockDim.x;i++){
         sums += transform_matrix[i * blockDim.x + threadIdx.y] * image_matrix[i * (gridDim.x * blockDim.x) + Id_y];
     }
     result[Id_y * gridDim.x * blockDim.x + Id_x] = sums;
@@ -480,7 +480,7 @@ __global__ void cuda_matrix_idct(const float* image_matrix, const float* transfo
 
     // result = result(precedente) @ transform_matrix
     // result = result[righe] @ transform_matrix[colonne]
-    for(i=0;i<blockDim.x;i++){
+    for(int i=0;i<blockDim.x;i++){
         sums += result[Id_y * (gridDim.x * blockDim.x) + i] * transform_matrix[i * blockDim.x + threadIdx.y];
     }
     // Non possono sovrascrivere prima che abbiano finito tutto altrimenti leggerebbero una riga sbagliata
@@ -489,7 +489,7 @@ __global__ void cuda_matrix_idct(const float* image_matrix, const float* transfo
     //result_global[Id_y * gridDim.x * blockDim.x + Id_x] = sums; implementare result_shared
 }
 
-void dct_all_blocks(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle)
+void dct_all_blocks(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle)
 {
     float alpha = 1.0f;
     float beta = 0.0f;
@@ -615,7 +615,7 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
         }
     }
 
-    add_matrix_scalar<<<gridDim,blockDim>>>(result_block, 128, result_block, img_width * img_height);
+    add_matrix_scalar<<<gridDim,blockDim>>>(result, 128, result, img_width * img_height);
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp1));
