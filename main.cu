@@ -30,26 +30,22 @@
 #define BLOCK_SIZE 8
 #define IMAGE_SIZE 256
 
-// Kernel CUDA per la divisione elemento per elemento
-__global__ void divide_matrices(const float* A, const float* B, float* C, int size);
+// Kernels CUDA per le operazioni aritmetiche element-wise
+__global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, int size);
+__global__ void add_matrix_scalar(const float* A, const float scalar, float* C, int size);
 
-// Kernel CUDA per la divisione elemento per elemento
+__global__ void divide_matrices(const float* A, const float* B, float* C, int size);
 __global__ void multiply_matrices(const float* A, const float* B, float* C, int size);
 
 // Host function to load image as matrix
 static unsigned char *load_jpeg_as_matrix(const char *filename, int *width, int *height, int *channels);
 
+// Host function to save matrix as jpeg
 int save_grayscale_jpeg(const char *filename, unsigned char *image_matrix, int width, int height, int quality);
-
-// Host function to compute DCT using CUBLAS
-void dct_block(const float *image_block, const float *transform_matrix, float *result, cublasHandle_t handle);
 
 void convertToFloat(unsigned char *input, float *output, int size);
 
 void convertToUnsignedChar(const float *image_float, unsigned char *image_char, int size);
-
-// Host function to compute IDCT using CUBLAS
-void idct_block(const float *image_block, const float *transform_matrix, float *result, cublasHandle_t handle);
 
 void dct_all_blocks(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
 
@@ -371,6 +367,32 @@ Id_y = gridID.y * blockDim.y + threadIdx.y
 global = Id_y * gridDim.x * blockDim.x + Id_x
 C[global] =  A[global] / quantization_matrix[threadIdx.x * BLOCK_SIZE + threadIdx.y]*/
 
+// Kernel CUDA per la sottrazione element-wise matrice - scalare
+__global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, int size) {
+    // Calcola l'indice globale del thread
+    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
+    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
+    int global = Id_y * gridDim.x * blockDim.x + Id_x;
+
+    // Controlla che l'indice sia all'interno dei limiti
+    if (global < size) {
+        C[global] =  A[global] - scalar;
+    }
+}
+
+// Kernel CUDA per l'addizione element-wise matrice - scalare
+__global__ void add_matrix_scalar(const float* A, const float scalar, float* C, int size) {
+    // Calcola l'indice globale del thread
+    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
+    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
+    int global = Id_y * gridDim.x * blockDim.x + Id_x;
+
+    // Controlla che l'indice sia all'interno dei limiti
+    if (global < size) {
+        C[global] =  A[global] + scalar;
+    }
+}
+
 // Kernel CUDA per la divisione elemento per elemento
 __global__ void divide_matrices(const float* A, const float* B, float* C, int size) {
     // Calcola l'indice globale del thread
@@ -380,7 +402,7 @@ __global__ void divide_matrices(const float* A, const float* B, float* C, int si
 
     // Controlla che l'indice sia all'interno dei limiti
     if (global < size) {
-        C[global] =  A[global] / B[threadIdx.x * blockDim.x + threadIdx.y];
+        C[global] =  round(A[global] / B[threadIdx.x * blockDim.x + threadIdx.y]);
     }
 }
 
@@ -397,6 +419,76 @@ __global__ void multiply_matrices(const float* A, const float* B, float* C, int 
     }
 }
 
+/* *
+ * Effettua la DCT utilizzando la matrice di trasformazioe
+ * (TRASFORM_MATRIX @ IMAGE_MATRIX) @ TRANSFORM_MATRIX.T
+ * La matrice di trasformazione è 8x8
+ * result = TRASFORM_MATRIX @ IMAGE_MATRIX
+ * result = result @ TRANSFORM_MATRIX.T
+ * */
+__global__ void cuda_matrix_dct(const float* image_matrix, const float* transform_matrix, float* result_g, int size) {
+    // Calcola l'indice globale del thread
+    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
+    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
+    int global = Id_y * gridDim.x * blockDim.x + Id_x;
+    float sums = 0;
+
+    // result = transform_matrix @ image_matrix
+    // result = transform_matrix[righe] @ image_matrix[colonne]
+    for(i=0;i<blockDim.x;i++){
+        sums += transform_matrix[threadIdx.y * blockDim.x + i] * image_matrix[i * (gridDim.x * blockDim.x) + Id_y];
+    }
+    result[Id_y * gridDim.x * blockDim.x + Id_x] = sums;
+    sums = 0;
+    // Devo attendere il completamento della DOT precedente
+    __syncthreads();
+
+    // result = result(precedente) @ transform_matrix.T (trasposta)
+    // result = result(precedente)[righe] @ transform_matrix[righe] (perchè la trasposta)
+    // result shared per fare 8 letture shared
+    for(i=0;i<blockDim.x;i++){
+        sums += result[Id_y * (gridDim.x * blockDim.x) + i] * transform_matrix[threadIdx.y * blockDim.x + i];
+    }
+    // Non possono sovrascrivere prima che abbiano finito tutto altrimenti leggerebbero una riga sbagliata
+    __syncthreads();
+    result[Id_y * gridDim.x * blockDim.x + Id_x] = sums;
+    //result_g[Id_y * gridDim.x * blockDim.x + Id_x] = sums; implementare result_shared
+}
+
+/* *
+ * Effettua la IDCT utilizzando la matrice di trasformazioe
+ * (TRANSFORM_MATRIX.T @ DCT_MATRIX) @ TRANSFORM_MATRIX
+ * La matrice di trasformazione è 8x8
+ * result = TRANSFORM_MATRIX.T @ DCT_MATRIX
+ * result = result @ TRANSFORM_MATRIX
+ * */
+__global__ void cuda_matrix_idct(const float* image_matrix, const float* transform_matrix, float* result, int size) {
+    // Calcola l'indice globale del thread
+    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
+    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
+    int global = Id_y * gridDim.x * blockDim.x + Id_x;
+    float sums = 0;
+
+    // result = transform_matrix.T @ dct_matrix
+    // result = transform_matrix[colonne](x trasposta) @ image_matrix[colonne]
+    for(i=0;i<blockDim.x;i++){
+        sums += transform_matrix[i * blockDim.x + threadIdx.y] * image_matrix[i * (gridDim.x * blockDim.x) + Id_y];
+    }
+    result[Id_y * gridDim.x * blockDim.x + Id_x] = sums;
+    sums = 0;
+    __syncthreads();
+
+    // result = result(precedente) @ transform_matrix
+    // result = result[righe] @ transform_matrix[colonne]
+    for(i=0;i<blockDim.x;i++){
+        sums += result[Id_y * (gridDim.x * blockDim.x) + i] * transform_matrix[i * blockDim.x + threadIdx.y];
+    }
+    // Non possono sovrascrivere prima che abbiano finito tutto altrimenti leggerebbero una riga sbagliata
+    __syncthreads();
+    result[Id_y * gridDim.x * blockDim.x + Id_x] = sums;
+    //result_global[Id_y * gridDim.x * blockDim.x + Id_x] = sums; implementare result_shared
+}
+
 void dct_all_blocks(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle)
 {
     float alpha = 1.0f;
@@ -407,17 +499,25 @@ void dct_all_blocks(const float *image_matrix, int img_height, int img_width, co
     CHECK_CUDA(cudaMalloc(&temp1, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
     CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
 
+    // Configurazione della griglia e dei blocchi
+    #define CUDA_BLOCK_SIZE 8
+    int gridx = img_width / CUDA_BLOCK_SIZE;
+    int gridy = img_width / CUDA_BLOCK_SIZE;
+    dim3 blockDim(CUDA_BLOCK_SIZE,CUDA_BLOCK_SIZE);
+    dim3 gridDim(gridx,gridy);
+
+    sub_matrix_scalar<<<gridDim,blockDim>>>(image_matrix, 128, image_matrix, img_width * img_height);
+
     // Itera sui blocchi 8x8 - applica la DCT
     for (int block_row = 0; block_row < img_height; block_row += BLOCK_SIZE)
     {
         for (int block_col = 0; block_col < img_width; block_col += BLOCK_SIZE)
         {
-
             // Calcola l'offset del blocco corrente
             const float *image_block = image_matrix + block_row * img_width + block_col;
             float *result_block = temp2 + block_row * img_width + block_col;
 
-            // Calcola transform_matrix @ image_block
+            // Calcola temp1 = transform_matrix @ image_block
             CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE,
                                      &alpha, transform_matrix, BLOCK_SIZE, image_block, img_width,
                                      &beta, temp1, BLOCK_SIZE));
@@ -444,11 +544,6 @@ void dct_all_blocks(const float *image_matrix, int img_height, int img_width, co
     float *d_Q_matrix;
     CHECK_CUDA(cudaMalloc(&d_Q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
     CHECK_CUDA(cudaMemcpy(d_Q_matrix, q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float), cudaMemcpyHostToDevice));
-
-    // Configurazione della griglia e dei blocchi
-    int gridx = img_width / 8;
-    dim3 blockDim(8,8);
-    dim3 gridDim(32,32);
 
     // CHECK_CUDA(cudaMemcpy(result, temp2, img_width * img_height * sizeof(float), cudaMemcpyDeviceToDevice));
     // Lancio del kernel quantizzazione
@@ -487,9 +582,11 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
     CHECK_CUDA(cudaMemcpy(d_Q_matrix, q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float), cudaMemcpyHostToDevice));
 
     // Configurazione della griglia e dei blocchi
-    int gridx = img_width / 8;
-    dim3 blockDim(8,8);
-    dim3 gridDim(32,32);
+    #define CUDA_BLOCK_SIZE 8
+    int gridx = img_width / CUDA_BLOCK_SIZE;
+    int gridy = img_width / CUDA_BLOCK_SIZE;
+    dim3 blockDim(CUDA_BLOCK_SIZE,CUDA_BLOCK_SIZE);
+    dim3 gridDim(gridx,gridy);
 
     // Lancio del kernel de-quantizzazione
     multiply_matrices<<<gridDim,blockDim>>>(image_matrix, d_Q_matrix, temp2, img_width * img_height);
@@ -500,17 +597,16 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
     {
         for (int block_col = 0; block_col < img_width; block_col += BLOCK_SIZE)
         {
-
             // Calcola l'offset del blocco corrente
             const float *image_block = temp2 + block_row * img_width + block_col;
             float *result_block = result + block_row * img_width + block_col;
 
-            // Compute transform_matrix.T @ image_block
+            // Compute temp1 = transform_matrix.T @ image_block
             CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE,
                                      &alpha, transform_matrix, BLOCK_SIZE, image_block, img_width,
                                      &beta, temp1, BLOCK_SIZE));
 
-            // Compute (transform_matrix.T @ image_block) @ transform_matrix
+            // Compute temp1 @ transform_matrix
             CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE,
                                      &alpha, temp1, BLOCK_SIZE, transform_matrix, BLOCK_SIZE,
                                      &beta, result_block, img_width));
@@ -518,6 +614,8 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
 
         }
     }
+
+    add_matrix_scalar<<<gridDim,blockDim>>>(result_block, 128, result_block, img_width * img_height);
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp1));
