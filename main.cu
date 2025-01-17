@@ -435,12 +435,15 @@ __global__ void cuda_matrix_dct(const float* image_matrix, const float* transfor
     int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
     int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
     int global = Id_y * gridDim.x * blockDim.x + Id_x;
+    int offset_x = blockIdx.x * blockDim.x;
+    int offset_y = blockIdx.y * blockDim.y;
+
     float sums = 0;
 
     // result = transform_matrix @ image_matrix
     // result = transform_matrix[righe] @ image_matrix[colonne]
-    for(int i=0;i<blockDim.x;i++){
-        sums += transform_matrix[threadIdx.y * blockDim.x + i] * image_matrix[i * (gridDim.x * blockDim.x) + Id_y];
+    for (int i = 0;i < blockDim.x;i++) {
+        sums += transform_matrix[threadIdx.y * blockDim.x + i] * image_matrix[(offset_y * gridDim.x * blockDim.x) + i * (gridDim.x * blockDim.x) + Id_x];
     }
     result[Id_y * gridDim.x * blockDim.x + Id_x] = sums;
     sums = 0;
@@ -450,8 +453,8 @@ __global__ void cuda_matrix_dct(const float* image_matrix, const float* transfor
     // result = result(precedente) @ transform_matrix.T (trasposta)
     // result = result(precedente)[righe] @ transform_matrix[righe] (perchè la trasposta)
     // result shared per fare 8 letture shared
-    for(int i=0;i<blockDim.x;i++){
-        sums += result[Id_y * (gridDim.x * blockDim.x) + i] * transform_matrix[threadIdx.y * blockDim.x + i];
+    for (int i = 0;i < blockDim.x;i++) {
+        sums += result[Id_y * (gridDim.x * blockDim.x) + offset_x + i] * transform_matrix[threadIdx.x * blockDim.x + i];
     }
     // Non possono sovrascrivere prima che abbiano finito tutto altrimenti leggerebbero una riga sbagliata
     __syncthreads();
@@ -471,12 +474,15 @@ __global__ void cuda_matrix_idct(const float* image_matrix, const float* transfo
     int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
     int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
     int global = Id_y * gridDim.x * blockDim.x + Id_x;
+    int offset_x = blockIdx.x * blockDim.x;
+    int offset_y = blockIdx.y * blockDim.y;
+
     float sums = 0;
 
     // result = transform_matrix.T @ dct_matrix
     // result = transform_matrix[colonne](x trasposta) @ image_matrix[colonne]
-    for(int i=0;i<blockDim.x;i++){
-        sums += transform_matrix[i * blockDim.x + threadIdx.y] * image_matrix[i * (gridDim.x * blockDim.x) + Id_y];
+    for (int i = 0;i < blockDim.x;i++) {
+        sums += transform_matrix[i * blockDim.x + threadIdx.y] * image_matrix[(offset_y * gridDim.x * blockDim.x) + i * (gridDim.x * blockDim.x) + Id_x];
     }
     result[Id_y * gridDim.x * blockDim.x + Id_x] = sums;
     sums = 0;
@@ -484,8 +490,8 @@ __global__ void cuda_matrix_idct(const float* image_matrix, const float* transfo
 
     // result = result(precedente) @ transform_matrix
     // result = result[righe] @ transform_matrix[colonne]
-    for(int i=0;i<blockDim.x;i++){
-        sums += result[Id_y * (gridDim.x * blockDim.x) + i] * transform_matrix[i * blockDim.x + threadIdx.y];
+    for (int i = 0;i < blockDim.x;i++) {
+        sums += result[Id_y * (gridDim.x * blockDim.x) + offset_x + i] * transform_matrix[i * blockDim.x + threadIdx.x];
     }
     // Non possono sovrascrivere prima che abbiano finito tutto altrimenti leggerebbero una riga sbagliata
     __syncthreads();
@@ -550,7 +556,6 @@ void dct_all_blocks(float *image_matrix, int img_height, int img_width, const fl
     CHECK_CUDA(cudaMalloc(&d_Q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
     CHECK_CUDA(cudaMemcpy(d_Q_matrix, q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float), cudaMemcpyHostToDevice));
 
-    // CHECK_CUDA(cudaMemcpy(result, temp2, img_width * img_height * sizeof(float), cudaMemcpyDeviceToDevice));
     // Lancio del kernel quantizzazione
     divide_matrices<<<gridDim,blockDim>>>(temp2, d_Q_matrix, result, img_width * img_height);
 
@@ -595,7 +600,6 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
 
     // Lancio del kernel de-quantizzazione
     multiply_matrices<<<gridDim,blockDim>>>(image_matrix, d_Q_matrix, temp2, img_width * img_height);
-    // CHECK_CUDA(cudaMemcpy(temp2, image_matrix, img_width * img_height * sizeof(float), cudaMemcpyDeviceToDevice));
 
     // Itera sui blocchi 8x8 - applica la IDCT
     for (int block_row = 0; block_row < img_height; block_row += BLOCK_SIZE)
@@ -631,12 +635,8 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
 
 void dct_all_blocks_cuda(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle)
 {
-    float alpha = 1.0f;
-    float beta = 0.0f;
-
     // Pre-alloca memoria GPU per i blocchi temporanei
-    float *temp1, *temp2;
-    CHECK_CUDA(cudaMalloc(&temp1, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
+    float *temp2;
     CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
 
     // Configurazione della griglia e dei blocchi
@@ -668,24 +668,18 @@ void dct_all_blocks_cuda(float *image_matrix, int img_height, int img_width, con
     CHECK_CUDA(cudaMalloc(&d_Q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
     CHECK_CUDA(cudaMemcpy(d_Q_matrix, q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float), cudaMemcpyHostToDevice));
 
-    // CHECK_CUDA(cudaMemcpy(result, temp2, img_width * img_height * sizeof(float), cudaMemcpyDeviceToDevice));
     // Lancio del kernel quantizzazione
     divide_matrices<<<gridDim,blockDim>>>(temp2, d_Q_matrix, result, img_width * img_height);
 
     // Libera memoria GPU
-    CHECK_CUDA(cudaFree(temp1));
     CHECK_CUDA(cudaFree(temp2));
     CHECK_CUDA(cudaFree(d_Q_matrix));
 }
 
 void idct_all_blocks_cuda(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle)
 {
-    float alpha = 1.0f;
-    float beta = 0.0f;
-
     // Pre-alloca memoria GPU per i blocchi temporanei
-    float *temp1, *temp2;
-    CHECK_CUDA(cudaMalloc(&temp1, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
+    float *temp2;
     CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
 
     // Applicazione della de-quantizzazione
@@ -713,7 +707,6 @@ void idct_all_blocks_cuda(const float *image_matrix, int img_height, int img_wid
 
     // Lancio del kernel de-quantizzazione
     multiply_matrices<<<gridDim,blockDim>>>(image_matrix, d_Q_matrix, temp2, img_width * img_height);
-    // CHECK_CUDA(cudaMemcpy(temp2, image_matrix, img_width * img_height * sizeof(float), cudaMemcpyDeviceToDevice));
 
     // applica la IDCT
     cuda_matrix_idct<<<gridDim,blockDim>>>(temp2,transform_matrix,result);
@@ -722,7 +715,6 @@ void idct_all_blocks_cuda(const float *image_matrix, int img_height, int img_wid
     add_matrix_scalar<<<gridDim,blockDim>>>(result, 128, result, img_width * img_height);
 
     // Libera memoria GPU
-    CHECK_CUDA(cudaFree(temp1));
     CHECK_CUDA(cudaFree(temp2));
     CHECK_CUDA(cudaFree(d_Q_matrix));
 }
