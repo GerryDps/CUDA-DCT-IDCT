@@ -51,9 +51,13 @@ void convertToUnsignedChar(const float *image_float, unsigned char *image_char, 
 void dct_all_blocks(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
 void idct_all_blocks(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
 
+// Kernels for dct / idct
+__global__ void cuda_matrix_dct(const float* image_matrix, const float* transform_matrix, float* result);
+__global__ void cuda_matrix_idct(const float* image_matrix, const float* transform_matrix, float* result);
+
 // Using cuda kernels to compute the DCT and the IDCT
-void dct_all_blocks_cuda(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
-void idct_all_blocks_cuda(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
+void dct_all_blocks_cuda(float* image_matrix, int img_height, int img_width, const float* transform_matrix, float* result);
+void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_width, const float* transform_matrix, float* result);
 
 int main()
 {
@@ -137,8 +141,8 @@ int main()
 
     // Compute DCT using CUBLAS
     // d_A = image_block ; d_B = transform_matrix ; d_C = result
-    //dct_block(d_A, d_B, d_C, handle);
-    dct_all_blocks(d_A, height,width,d_B, d_C, handle);
+    //dct_all_blocks(d_A, height,width,d_B, d_C, handle);
+    dct_all_blocks_cuda(d_A, height,width,d_B, d_C);
 
     // copy device memory to host
     // result = d_C
@@ -159,7 +163,8 @@ int main()
 
     // Compute the idct
     // d_C = result ; d_B = transform_matrix ; d_E = result
-    idct_all_blocks(d_C, height, width, d_B,d_E,handle);
+    //idct_all_blocks(d_C, height, width, d_B,d_E,handle);
+    idct_all_blocks_cuda(d_C, height, width, d_B,d_E);
 
     // copy device memory to host
     // result = d_E
@@ -312,47 +317,10 @@ int save_grayscale_jpeg(const char *filename, unsigned char *image_matrix, int w
     return 1;
 }
 
-// Host function to compute DCT using CUBLAS
-void dct_block(const float *image_block, const float *transform_matrix, float *result, cublasHandle_t handle)
-{
-    float alpha = 1.0f;
-    float beta = 0.0f;
-
-    float *temp; // temp = transform_matrix @ image_block
-    CHECK_CUDA(cudaMalloc(&temp, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
-
-    // Compute transform_matrix @ image_block
-    CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE, &alpha, transform_matrix, BLOCK_SIZE, image_block, BLOCK_SIZE, &beta, temp, BLOCK_SIZE));
-
-    // Compute temp @ transform_matrix.T // (temp = transform_matrix @ image_block)
-    CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE, &alpha, temp, BLOCK_SIZE, transform_matrix, BLOCK_SIZE, &beta, result, BLOCK_SIZE));
-
-    CHECK_CUDA(cudaFree(temp));
-}
-
-// Host function to compute IDCT using CUBLAS
-void idct_block(const float *image_block, const float *transform_matrix, float *result, cublasHandle_t handle)
-{
-    float alpha = 1.0f;
-    float beta = 0.0f;
-
-    float *temp; // temp = transform_matrix.T @ image_block
-    CHECK_CUDA(cudaMalloc(&temp, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
-
-    // Compute transform_matrix.T @ image_block
-    CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE, &alpha, transform_matrix, BLOCK_SIZE, image_block, BLOCK_SIZE, &beta, temp, BLOCK_SIZE));
-
-    // Compute (transform_matrix.T @ image_block) @ transform_matrix
-    CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE, &alpha, temp, BLOCK_SIZE, transform_matrix, BLOCK_SIZE, &beta, result, BLOCK_SIZE));
-
-    CHECK_CUDA(cudaFree(temp));
-}
-
 // Convert an unsigned char image matrix to an float image matrix
 void convertToFloat(unsigned char *input, float *output, int size)
 {
-    for (int i = 0; i < size; i++)
-    {
+    for (int i = 0; i < size; i++) {
         output[i] = (float)input[i];
     }
 }
@@ -633,24 +601,24 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
     CHECK_CUDA(cudaFree(d_Q_matrix));
 }
 
-void dct_all_blocks_cuda(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle)
+void dct_all_blocks_cuda(float* image_matrix, int img_height, int img_width, const float* transform_matrix, float* result)
 {
     // Pre-alloca memoria GPU per i blocchi temporanei
-    float *temp2;
+    float* temp2;
     CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
 
     // Configurazione della griglia e dei blocchi
     #define CUDA_BLOCK_SIZE 8
     int gridx = img_width / CUDA_BLOCK_SIZE;
     int gridy = img_width / CUDA_BLOCK_SIZE;
-    dim3 blockDim(CUDA_BLOCK_SIZE,CUDA_BLOCK_SIZE);
-    dim3 gridDim(gridx,gridy);
+    dim3 blockDim(CUDA_BLOCK_SIZE, CUDA_BLOCK_SIZE);
+    dim3 gridDim(gridx, gridy);
 
     // subsampling (--128)
-    sub_matrix_scalar<<<gridDim,blockDim>>>(image_matrix, 128, image_matrix, img_width * img_height);
+    sub_matrix_scalar<<<gridDim, blockDim>>>(image_matrix, 128, image_matrix, img_width * img_height);
 
     // applica la DCT
-    cuda_matrix_dct<<<gridDim,blockDim>>>(image_matrix,transform_matrix,temp2);
+    cuda_matrix_dct<<<gridDim, blockDim>>>(image_matrix, transform_matrix, temp2);
 
     // Applicazione della quantizzazione
     float q_matrix[BLOCK_SIZE * BLOCK_SIZE] = {
@@ -664,22 +632,22 @@ void dct_all_blocks_cuda(float *image_matrix, int img_height, int img_width, con
             72, 92, 95, 98, 112, 100, 103, 99};
 
     // alloca quant_matrix on device
-    float *d_Q_matrix;
+    float* d_Q_matrix;
     CHECK_CUDA(cudaMalloc(&d_Q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
     CHECK_CUDA(cudaMemcpy(d_Q_matrix, q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float), cudaMemcpyHostToDevice));
 
     // Lancio del kernel quantizzazione
-    divide_matrices<<<gridDim,blockDim>>>(temp2, d_Q_matrix, result, img_width * img_height);
+    divide_matrices<<<gridDim, blockDim>>>(temp2, d_Q_matrix, result, img_width * img_height);
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp2));
     CHECK_CUDA(cudaFree(d_Q_matrix));
 }
 
-void idct_all_blocks_cuda(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle)
+void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_width, const float* transform_matrix, float* result)
 {
     // Pre-alloca memoria GPU per i blocchi temporanei
-    float *temp2;
+    float* temp2;
     CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
 
     // Applicazione della de-quantizzazione
@@ -691,10 +659,10 @@ void idct_all_blocks_cuda(const float *image_matrix, int img_height, int img_wid
             18, 22, 37, 56, 68, 109, 103, 77,
             24, 35, 55, 64, 81, 104, 113, 92,
             49, 64, 78, 87, 103, 121, 120, 101,
-            72, 92, 95, 98, 112, 100, 103, 99};
+            72, 92, 95, 98, 112, 100, 103, 99 };
 
     // alloca quant_matrix on device
-    float *d_Q_matrix;
+    float* d_Q_matrix;
     CHECK_CUDA(cudaMalloc(&d_Q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
     CHECK_CUDA(cudaMemcpy(d_Q_matrix, q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float), cudaMemcpyHostToDevice));
 
@@ -702,17 +670,17 @@ void idct_all_blocks_cuda(const float *image_matrix, int img_height, int img_wid
     #define CUDA_BLOCK_SIZE 8
     int gridx = img_width / CUDA_BLOCK_SIZE;
     int gridy = img_width / CUDA_BLOCK_SIZE;
-    dim3 blockDim(CUDA_BLOCK_SIZE,CUDA_BLOCK_SIZE);
-    dim3 gridDim(gridx,gridy);
+    dim3 blockDim(CUDA_BLOCK_SIZE, CUDA_BLOCK_SIZE);
+    dim3 gridDim(gridx, gridy);
 
     // Lancio del kernel de-quantizzazione
-    multiply_matrices<<<gridDim,blockDim>>>(image_matrix, d_Q_matrix, temp2, img_width * img_height);
+    multiply_matrices<<<gridDim, blockDim>>>(image_matrix, d_Q_matrix, temp2, img_width * img_height);
 
     // applica la IDCT
-    cuda_matrix_idct<<<gridDim,blockDim>>>(temp2,transform_matrix,result);
+    cuda_matrix_idct<<<gridDim, blockDim>>>(temp2, transform_matrix, result);
 
     // inverse of subsampling (++128)
-    add_matrix_scalar<<<gridDim,blockDim>>>(result, 128, result, img_width * img_height);
+    add_matrix_scalar<<<gridDim, blockDim>>>(result, 128, result, img_width * img_height);
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp2));
