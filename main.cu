@@ -478,10 +478,10 @@ void dct_all_blocks(float *image_matrix, int img_height, int img_width, const fl
     CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
 
     // Configurazione della griglia e dei blocchi
-    #define CUDA_BLOCK_SIZE 8
-    int gridx = img_width / CUDA_BLOCK_SIZE;
-    int gridy = img_width / CUDA_BLOCK_SIZE;
-    dim3 blockDim(CUDA_BLOCK_SIZE,CUDA_BLOCK_SIZE);
+    // -> using BLOCK_SIZE
+    int gridx = img_width / BLOCK_SIZE;
+    int gridy = img_width / BLOCK_SIZE;
+    dim3 blockDim(BLOCK_SIZE,BLOCK_SIZE);
     dim3 gridDim(gridx,gridy);
 
     // subsampling (--128)
@@ -560,10 +560,10 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
     CHECK_CUDA(cudaMemcpy(d_Q_matrix, q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float), cudaMemcpyHostToDevice));
 
     // Configurazione della griglia e dei blocchi
-    #define CUDA_BLOCK_SIZE 8
-    int gridx = img_width / CUDA_BLOCK_SIZE;
-    int gridy = img_width / CUDA_BLOCK_SIZE;
-    dim3 blockDim(CUDA_BLOCK_SIZE,CUDA_BLOCK_SIZE);
+    // -> using BLOCK_SIZE
+    int gridx = img_width / BLOCK_SIZE;
+    int gridy = img_width / BLOCK_SIZE;
+    dim3 blockDim(BLOCK_SIZE,BLOCK_SIZE);
     dim3 gridDim(gridx,gridy);
 
     // Lancio del kernel de-quantizzazione
@@ -608,10 +608,10 @@ void dct_all_blocks_cuda(float* image_matrix, int img_height, int img_width, con
     CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
 
     // Configurazione della griglia e dei blocchi
-    #define CUDA_BLOCK_SIZE 8
-    int gridx = img_width / CUDA_BLOCK_SIZE;
-    int gridy = img_width / CUDA_BLOCK_SIZE;
-    dim3 blockDim(CUDA_BLOCK_SIZE, CUDA_BLOCK_SIZE);
+    // -> using BLOCK SIZE
+    int gridx = img_width / BLOCK_SIZE;
+    int gridy = img_width / BLOCK_SIZE;
+    dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
     dim3 gridDim(gridx, gridy);
 
     // subsampling (--128)
@@ -667,10 +667,10 @@ void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_wid
     CHECK_CUDA(cudaMemcpy(d_Q_matrix, q_matrix, BLOCK_SIZE * BLOCK_SIZE * sizeof(float), cudaMemcpyHostToDevice));
 
     // Configurazione della griglia e dei blocchi
-    #define CUDA_BLOCK_SIZE 8
-    int gridx = img_width / CUDA_BLOCK_SIZE;
-    int gridy = img_width / CUDA_BLOCK_SIZE;
-    dim3 blockDim(CUDA_BLOCK_SIZE, CUDA_BLOCK_SIZE);
+    // -> using BLOCK_SIZE
+    int gridx = img_width / BLOCK_SIZE;
+    int gridy = img_width / BLOCK_SIZE;
+    dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
     dim3 gridDim(gridx, gridy);
 
     // Lancio del kernel de-quantizzazione
