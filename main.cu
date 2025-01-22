@@ -392,7 +392,7 @@ __global__ void multiply_matrices(const float* A, const float* B, float* C, int 
 }
 
 /* *
- * Effettua la DCT utilizzando la matrice di trasformazioe
+ * Effettua la DCT utilizzando la matrice di trasformazione
  * (TRASFORM_MATRIX @ IMAGE_MATRIX) @ TRANSFORM_MATRIX.T
  * La matrice di trasformazione è 8x8
  * result = TRASFORM_MATRIX @ IMAGE_MATRIX
@@ -431,7 +431,7 @@ __global__ void cuda_matrix_dct(const float* image_matrix, const float* transfor
 }
 
 /* *
- * Effettua la IDCT utilizzando la matrice di trasformazioe
+ * Effettua la IDCT utilizzando la matrice di trasformazione
  * (TRANSFORM_MATRIX.T @ DCT_MATRIX) @ TRANSFORM_MATRIX
  * La matrice di trasformazione è 8x8
  * result = TRANSFORM_MATRIX.T @ DCT_MATRIX
@@ -685,4 +685,111 @@ void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_wid
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp2));
     CHECK_CUDA(cudaFree(d_Q_matrix));
+}
+
+__global__ void cuda_matrix_dct_paper(const float* image_matrix, int img_size, const float* transform_matrix, float* result) {
+    extern __shared__ float shared_matrix[];
+    // CUDA related vars (ids)
+    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
+    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
+    int global = Id_y * gridDim.x * blockDim.x + Id_x;
+    // Image size related vars ()
+    int imgDimX = img_size / blockDim.x; // numero di blocchi 8x8 sull asse X
+    int imgDimY = img_size / blockDim.y; // numero di blocchi 8x8 sull'asse Y
+    int imageIdY = global / 8 / imgDimX; // indicizzazione del blocco, Y
+    int imageIdX = global / 8 % imgDimY; // indicizzazione del blocco, X
+    int offset_y = imageIdY * BLOCK_SIZE * img_size; // si "sposta" verso il basso di (BLOCK_SIZE * img_size)
+    int offset_x = imageIdX * BLOCK_SIZE; // si "sposta" verso destra di BLOCK_SIZE
+
+    float sums = 0;
+    /* *
+     * Il seguente IF serve per evitare accessi illegali alla memoria.
+     * Essendo che adesso i Threads sono mappati sul blocco immagine,
+     * potrebbero esserci thread che non svolgono lavoro.
+     * In tal caso bisogna evitare che accedano alla memoria.
+     * */
+    if (global >= imgDimX * imgDimY * 8)return;
+
+    // RIGHE DI T PER COLONNE DI IMG (T @ X)
+    for (int i = 0;i < 8;i++) {
+        for (int j = 0;j < 8;j++) {
+            // sums += T [ sempre la stessa riga ] * X [ colonne in sequenza ]
+            sums += transform_matrix[threadIdx.x * 8 + j] * image_matrix[i + (offset_y + offset_x) + (j * img_size)];
+        }
+        // TX [ riga ] = T[ riga ] * X[ colonne ] (TX[riga] = somma dei prodotti)
+        shared_matrix[(offset_y + offset_x) + threadIdx.x * img_size + i] = sums;
+        sums = 0;
+    }
+
+    sums = 0;
+
+    // RIGHE DI TX PER RIGHE DI T (TX @ T.T)
+    for (int i = 0;i < 8;i++) {
+        for (int j = 0;j < 8;j++) {
+            // sums += TX [ sempre la stessa riga ] * T [ righe in sequenza ]
+            sums += shared_matrix[(offset_y + offset_x) + threadIdx.x * img_size + j] * transform_matrix[i * 8 + j];
+        }
+        // result [ riga ] = TX [ riga ] * T [ righe ]
+        result[(offset_y + offset_x) + (threadIdx.x * img_size) + i] = sums;
+        sums = 0;
+    }
+}
+
+/* *
+ * Effettua la IDCT utilizzando la matrice di trasformazione
+ * (TRANSFORM_MATRIX.T @ DCT_MATRIX) @ TRANSFORM_MATRIX
+ * La matrice di trasformazione è 8x8
+ * shared_matrix = TRANSFORM_MATRIX.T @ DCT_MATRIX
+ * result = shared_matrix @ TRANSFORM_MATRIX
+ *
+ * Questo kernel va chiamato passando la grandezza di __shared___:
+ * cuda_matrix_idct_paper<<<gridDim, blockDim, width*height*sizeof(float)>>>
+ * */
+__global__ void cuda_matrix_idct_paper(const float* image_matrix, int img_size,const float* transform_matrix, float* result) {
+    extern __shared__ float shared_matrix[];
+    // CUDA related vars (ids)
+    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
+    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
+    int global = Id_y * gridDim.x * blockDim.x + Id_x;
+    // Image size related vars ()
+    int imgDimX = img_size / blockDim.x; // numero di blocchi 8x8 sull asse X
+    int imgDimY = img_size / blockDim.y; // numero di blocchi 8x8 sull'asse Y
+    int imageIdY = global / 8 / imgDimX; // indicizzazione del blocco, Y
+    int imageIdX = global / 8 % imgDimY; // indicizzazione del blocco, X
+    int offset_y = imageIdY * BLOCK_SIZE * img_size; // si "sposta" verso il basso di (BLOCK_SIZE * img_size)
+    int offset_x = imageIdX * BLOCK_SIZE; // si "sposta" verso destra di BLOCK_SIZE
+
+    float sums = 0;
+    /* *
+     * Il seguente IF serve per evitare accessi illegali alla memoria.
+     * Essendo che adesso i Threads sono mappati sul blocco immagine,
+     * potrebbero esserci thread che non svolgono lavoro.
+     * In tal caso bisogna evitare che accedano alla memoria.
+     * */
+    if (global >= imgDimX * imgDimY * 8)return;
+
+
+    // COLONNE DI T PER COLONNE DI IMG (T.T @ X)
+    for (int i = 0;i < 8;i++) {
+        for (int j = 0;j < 8;j++) {
+            // sums += TX [ sempre la stessa colonna ] * T [ colonne in sequenza ]
+            sums += transform_matrix[threadIdx.x + j * 8] * image_matrix[i + (offset_y + offset_x) + (j * img_size)];
+        }
+        // TX [ riga ] = T[ colonna ] * X[ colonne ] (TX[riga] = somma dei prodotti)
+        shared_matrix[(offset_y + offset_x) + threadIdx.x * img_size + i] = sums;
+        sums = 0;
+    }
+
+    sums = 0;
+
+    // RIGHE DI TX PER COLONNE DI T (TX @ T)
+    for (int i = 0;i < 8;i++) {
+        for (int j = 0;j < 8;j++) {
+            // sums += TX [ sempre la stessa riga ] * T [ colonne in sequenza ]
+            sums += shared_matrix[(offset_y + offset_x) + threadIdx.x * img_size + j] * transform_matrix[i + j * 8];
+        }
+        // result [ riga ] = TX [ riga ] * T [ colonne ]
+        result[(offset_y + offset_x) + (threadIdx.x * img_size) + i] = sums;
+        sums = 0;
+    }
 }
