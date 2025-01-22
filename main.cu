@@ -189,6 +189,15 @@ int main()
     convertToUnsignedChar(result, image_matrix_uc, width * height);
     free(result);
 
+    printf("Printing the 8x8 of U_C[] (unsignedchar)\n");
+    for (int i = 0; i < BLOCK_SIZE; i++){
+        for (int j = 0; j < BLOCK_SIZE; j++){
+            printf("%d ", image_matrix_uc[i * width + j]);
+        }
+        printf("\n");
+    }
+    printf("\n\n");
+
     if (save_grayscale_jpeg(filename_out, image_matrix_uc, width, height, quality))
     {
         printf("Image saved successfully to %s\n", filename_out);
@@ -687,6 +696,16 @@ void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_wid
     CHECK_CUDA(cudaFree(d_Q_matrix));
 }
 
+/* *
+ * Effettua la DCT utilizzando la matrice di trasformazione
+ * (TRANSFORM_MATRIX @ IMAGE) @ TRANSFORM_MATRIX.T
+ * La matrice di trasformazione è 8x8
+ * shared_matrix = TRANSFORM_MATRIX @ IMAGE
+ * result = shared_matrix @ TRANSFORM_MATRIX.T
+ *
+ * Questo kernel va chiamato passando la grandezza di __shared___:
+ * cuda_matrix_idct_paper<<<gridDim, blockDim, width*height*sizeof(float)>>>
+ * */
 __global__ void cuda_matrix_dct_paper(const float* image_matrix, int img_size, const float* transform_matrix, float* result) {
     extern __shared__ float shared_matrix[];
     // CUDA related vars (ids)
