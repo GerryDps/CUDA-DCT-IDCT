@@ -60,7 +60,7 @@ int main()
     const char *filename = "camera256.tif.jpeg";
     int width, height, channels;
 
-    // Load a jpeg image in image_matrix
+    /*// Load a jpeg image in image_matrix
     unsigned char *image_matrix = load_jpeg_as_matrix(filename, &width, &height, &channels);
     if (!image_matrix)
     {
@@ -71,9 +71,21 @@ int main()
     float *image_matrix_float;
     image_matrix_float = (float *)malloc(width * height * sizeof(float));
     convertToFloat(image_matrix, image_matrix_float, width * height * channels);
-    free(image_matrix);
+    free(image_matrix);*/
 
-    printf("Printing the 8x8 of image[] (matrix coming from the jpeg image)\n");
+    width = 4096;
+    height = 4096;
+
+    float* image_matrix_float;
+    image_matrix_float = (float*)malloc(width * height * sizeof(float));
+    srand(41);
+    for (int i = 0; i < height;i++) {
+        for (int j = 0; j < width; j++) {
+            image_matrix_float[i * width + j] = rand() % 256;;
+        }
+    }
+
+    printf("Printing the 8x8 of image[] (matrix from the jpeg image w:%d h:%d)\n",width,height);
     for (int i = 0; i < BLOCK_SIZE; i++){
         for (int j = 0; j < BLOCK_SIZE; j++){
             printf("%f ", image_matrix_float[i * width + j]);
@@ -92,7 +104,6 @@ int main()
             24, 35, 55, 64, 81, 104, 113, 92,
             49, 64, 78, 87, 103, 121, 120, 101,
             72, 92, 95, 98, 112, 100, 103, 99};
-
     CHECK_CUDA(cudaMemcpyToSymbol(const_quant_matrix, quant_matrix, sizeof(quant_matrix)));
 
     // Transform matrix (hardcoded for simplicity)
@@ -227,7 +238,6 @@ static unsigned char *load_jpeg_as_matrix(const char *filename, int *width, int 
     *height = cinfo.output_height;
     *channels = cinfo.output_components; // 1 for grayscale, 3 for RGB
     int colorspace = cinfo.out_color_space;
-    printf("Color Space: %d\n", colorspace);
 
     // Allocate memory for the pixel matrix
     unsigned long matrix_size = (*width) * (*height) * (*channels);
@@ -390,9 +400,10 @@ void dct_all_blocks(float *image_matrix, int img_height, int img_width, const fl
     float beta = 0.0f;
 
     // Pre-alloca memoria GPU per i blocchi temporanei
-    float *temp1, *temp2;
+    float *temp1, *temp2,*d_Q_matrix;
     CHECK_CUDA(cudaMalloc(&temp1, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
     CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
+    CHECK_CUDA(cudaGetSymbolAddress((void**)&d_Q_matrix,const_quant_matrix));
 
     // Configurazione della griglia e dei blocchi
     // -> using BLOCK_SIZE
@@ -400,6 +411,12 @@ void dct_all_blocks(float *image_matrix, int img_height, int img_width, const fl
     int gridy = img_width / BLOCK_SIZE;
     dim3 blockDim(BLOCK_SIZE,BLOCK_SIZE);
     dim3 gridDim(gridx,gridy);
+
+    // Avvia il timer
+    cudaEvent_t start, stop;
+    CHECK_CUDA(cudaEventCreate(&start));
+    CHECK_CUDA(cudaEventCreate(&stop));
+    CHECK_CUDA(cudaEventRecord(start, 0));
 
     // subsampling (--128)
     sub_matrix_scalar<<<gridDim,blockDim>>>(image_matrix, 128, image_matrix, img_width * img_height);
@@ -425,13 +442,17 @@ void dct_all_blocks(float *image_matrix, int img_height, int img_width, const fl
         }
     }
 
-    // Applicazione della quantizzazione
-    // Prende l'indirizzo alla constat memory e lo passa al kernel
-    float *d_Q_matrix;
-    CHECK_CUDA(cudaGetSymbolAddress((void**)&d_Q_matrix,constant_matrix));
-
     // Lancio del kernel quantizzazione
     divide_matrices<<<gridDim,blockDim>>>(temp2, d_Q_matrix, result, img_width * img_height);
+
+    // Ferma il timer
+    CHECK_CUDA(cudaEventRecord(stop, 0));
+    CHECK_CUDA(cudaEventSynchronize(stop));
+    // Calcola il tempo totale
+    float milliseconds = 0;
+    CHECK_CUDA(cudaEventElapsedTime(&milliseconds, start, stop));
+    printf("Tempo di esecuzione DCT: %f ms\n",milliseconds);
+
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp1));
@@ -447,13 +468,10 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
     float beta = 0.0f;
 
     // Pre-alloca memoria GPU per i blocchi temporanei
-    float *temp1, *temp2;
+    float *temp1, *temp2,*d_Q_matrix;;
     CHECK_CUDA(cudaMalloc(&temp1, BLOCK_SIZE * BLOCK_SIZE * sizeof(float)));
     CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
-
-    // Prende l'indirizzo alla constat memory e lo passa al kernel
-    float *d_Q_matrix;
-    CHECK_CUDA(cudaGetSymbolAddress((void**)&d_Q_matrix,constant_matrix));
+    CHECK_CUDA(cudaGetSymbolAddress((void**)&d_Q_matrix,const_quant_matrix));
 
     // Configurazione della griglia e dei blocchi
     // -> using BLOCK_SIZE
@@ -461,6 +479,12 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
     int gridy = img_width / BLOCK_SIZE;
     dim3 blockDim(BLOCK_SIZE,BLOCK_SIZE);
     dim3 gridDim(gridx,gridy);
+
+    // Avvia il timer
+    cudaEvent_t start, stop;
+    CHECK_CUDA(cudaEventCreate(&start));
+    CHECK_CUDA(cudaEventCreate(&stop));
+    CHECK_CUDA(cudaEventRecord(start, 0));
 
     // Lancio del kernel de-quantizzazione
     multiply_matrices<<<gridDim,blockDim>>>(image_matrix, d_Q_matrix, temp2, img_width * img_height);
@@ -488,6 +512,14 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
 
     // inverse of subsampling (++128)
     add_matrix_scalar<<<gridDim,blockDim>>>(result, 128, result, img_width * img_height);
+
+    // Ferma il timer
+    CHECK_CUDA(cudaEventRecord(stop, 0));
+    CHECK_CUDA(cudaEventSynchronize(stop));
+    // Calcola il tempo totale
+    float milliseconds = 0;
+    CHECK_CUDA(cudaEventElapsedTime(&milliseconds, start, stop));
+    printf("Tempo di esecuzione IDCT: %f ms\n",milliseconds);
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp1));
