@@ -16,17 +16,6 @@
         }                                                         \
     }
 
-// Check CUBLAS error
-#define CHECK_CUBLAS(call)                                         \
-    {                                                              \
-        cublasStatus_t err = call;                                 \
-        if (err != CUBLAS_STATUS_SUCCESS)                          \
-        {                                                          \
-            printf("CUBLAS error in %s : %d", __FILE__, __LINE__); \
-            exit(EXIT_FAILURE);                                    \
-        }                                                          \
-    }
-
 #define BLOCK_SIZE 8
 #define IMAGE_SIZE 256
 
@@ -171,10 +160,6 @@ int main()
     {
         fprintf(stderr, "Error: Failed to save image\n");
     }
-
-
-    // Cleanup
-    CHECK_CUBLAS(cublasDestroy(handle));
 
     return 0;
 }
