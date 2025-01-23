@@ -490,7 +490,6 @@ void dct_all_blocks_cuda(float* image_matrix, int img_height, int img_width, con
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp2));
-    CHECK_CUDA(cudaFree(d_Q_matrix));
 }
 
 void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_width, const float* transform_matrix, float* result)
@@ -532,5 +531,4 @@ void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_wid
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp2));
-    CHECK_CUDA(cudaFree(d_Q_matrix));
 }
