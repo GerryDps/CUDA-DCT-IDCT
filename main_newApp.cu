@@ -456,7 +456,7 @@ void dct_all_blocks_cuda(float* image_matrix, int img_height, int img_width, con
     // Pre-alloca memoria GPU per i blocchi temporanei
     float *temp2,*d_Q_matrix;
     CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
-    CHECK_CUDA(cudaGetSymbolAddress((void**)&d_Q_matrix,constant_matrix));
+    CHECK_CUDA(cudaGetSymbolAddress((void**)&d_Q_matrix,const_quant_matrix));
 
     // Configurazione della griglia e dei blocchi
     // -> using BLOCK SIZE
@@ -498,7 +498,7 @@ void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_wid
     // Pre-alloca memoria GPU per i blocchi temporanei
     float* temp2, *d_Q_matrix;
     CHECK_CUDA(cudaMalloc(&temp2, img_width * img_height * sizeof(float)));
-    CHECK_CUDA(cudaGetSymbolAddress((void**)&d_Q_matrix,constant_matrix));
+    CHECK_CUDA(cudaGetSymbolAddress((void**)&d_Q_matrix,const_quant_matrix));
 
     // Configurazione della griglia e dei blocchi
     // -> using BLOCK_SIZE
