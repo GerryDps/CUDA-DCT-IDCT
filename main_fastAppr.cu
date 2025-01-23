@@ -457,7 +457,7 @@ __global__ void cuda_matrix_idct_paper(const float* image_matrix, int img_size,c
         for (int j = 0;j < BLOCK_SIZE;j++) {
             // sums += TX [ sempre la stessa riga ] * T [ colonne in sequenza ]
             // sums += shared_matrix[(offset_y + offset_x) + threadIdx.x * img_size + j] * transform_matrix[i + j * BLOCK_SIZE];
-            sums += riga[j];
+            sums += riga[j] * transform_matrix[i + j * 8];
         }
         // result [ riga ] = TX [ riga ] * T [ colonne ]
         result[(offset_y + offset_x) + (threadIdx.x * img_size) + i] = sums;
