@@ -558,7 +558,7 @@ void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_wid
     // Configurazione della griglia e dei blocchi
     // -> using BLOCK_SIZE
     int gridx = img_width / BLOCK_SIZE;
-    int gridy = img_width / BLOCK_SIZE;
+    int gridy = img_height / BLOCK_SIZE;
     dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
     dim3 gridDim(gridx, gridy);
     int mono_grid_Dim = ((gridx * gridy * 8)+(BLOCK_SIZE*BLOCK_SIZE)-1)/(BLOCK_SIZE*BLOCK_SIZE);
