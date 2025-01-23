@@ -19,8 +19,6 @@
 #define BLOCK_SIZE 8
 #define IMAGE_SIZE 256
 
-__constant__ float const_quant_matrix[BLOCK_SIZE*BLOCK_SIZE];
-
 // Kernels CUDA per le operazioni aritmetiche element-wise
 __global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, int size);
 __global__ void add_matrix_scalar(const float* A, const float scalar, float* C, int size);
