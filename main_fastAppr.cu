@@ -33,7 +33,7 @@ static unsigned char *load_jpeg_as_matrix(const char *filename, int *width, int 
 int save_grayscale_jpeg(const char *filename, unsigned char *image_matrix, int width, int height, int quality);
 
 // Utils
-void convertToFloat(unsigned char *input, float *output, int size);
+void convertToFloat(const unsigned char *input, float *output, int size);
 void convertToUnsignedChar(const float *image_float, unsigned char *image_char, int size);
 
 // Using cuda kernels to compute the DCT and the IDCT
