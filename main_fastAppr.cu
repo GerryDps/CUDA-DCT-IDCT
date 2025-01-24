@@ -287,7 +287,7 @@ int save_grayscale_jpeg(const char *filename, unsigned char *image_matrix, int w
 }
 
 // Convert an unsigned char image matrix to an float image matrix
-void convertToFloat(unsigned char *input, float *output, int size)
+void convertToFloat(const unsigned char *input, float *output, int size)
 {
     for (int i = 0; i < size; i++) {
         output[i] = (float)input[i];
