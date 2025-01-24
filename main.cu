@@ -30,6 +30,8 @@
 #define BLOCK_SIZE 8
 #define IMAGE_SIZE 256
 
+__constant__ float const_quant_matrix[BLOCK_SIZE*BLOCK_SIZE];
+
 // Kernels CUDA per le operazioni aritmetiche element-wise
 __global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, int size);
 __global__ void add_matrix_scalar(const float* A, const float scalar, float* C, int size);
@@ -48,16 +50,19 @@ void convertToFloat(unsigned char *input, float *output, int size);
 void convertToUnsignedChar(const float *image_float, unsigned char *image_char, int size);
 
 // Using CUBLAS HANDLE to compute the DCT and the IDCT
-void dct_all_blocks(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
-void idct_all_blocks(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
+__host__ void dct_all_blocks(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
+__host__ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
 
 // Kernels for dct / idct
 __global__ void cuda_matrix_dct(const float* image_matrix, const float* transform_matrix, float* result);
 __global__ void cuda_matrix_idct(const float* image_matrix, const float* transform_matrix, float* result);
 
+__global__ void cuda_matrix_dct_paper(const float* image_matrix, int img_size, const float* transform_matrix, float* result);
+__global__ void cuda_matrix_idct_paper(const float* image_matrix, int img_size,const float* transform_matrix, float* result);
+
 // Using cuda kernels to compute the DCT and the IDCT
-void dct_all_blocks_cuda(float* image_matrix, int img_height, int img_width, const float* transform_matrix, float* result);
-void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_width, const float* transform_matrix, float* result);
+__host__ void dct_all_blocks_cuda(float* image_matrix, int img_height, int img_width, const float* transform_matrix, float* result);
+__host__ void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_width, const float* transform_matrix, float* result);
 
 int main()
 {
@@ -87,19 +92,7 @@ int main()
     }
     printf("\n\n");
 
-    /* image_matrix
-    float image_matrix[BLOCK_SIZE * BLOCK_SIZE] = {
-            156, 159, 158, 155, 158, 156, 159, 158,
-            160, 154, 157, 158, 157, 159, 158, 158,
-            156, 159, 157, 155, 157, 157, 160, 158,
-            160, 154, 157, 158, 157, 160, 158, 158,
-            157, 152, 155, 158, 159, 155, 156, 155,
-            155, 155, 155, 157, 156, 159, 152, 158,
-            156, 154, 157, 156, 153, 155, 154, 155,
-            159, 159, 156, 158, 156, 159, 157, 160};
-    */
-
-    // Quantization matrix (fare __device__ )
+    // Quantization matrix (su constant)
     float quant_matrix[BLOCK_SIZE * BLOCK_SIZE] = {
             16, 11, 10, 16, 24, 40, 51, 61,
             12, 12, 14, 19, 26, 58, 60, 55,
@@ -109,6 +102,8 @@ int main()
             24, 35, 55, 64, 81, 104, 113, 92,
             49, 64, 78, 87, 103, 121, 120, 101,
             72, 92, 95, 98, 112, 100, 103, 99};
+    // memoria costante
+    CHECK_CUDA(cudaMemcpyToSymbol(constant_matrix, quant_matrix, sizeof(quant_matrix)));
 
     // Transform matrix (hardcoded for simplicity)
     float transform_matrix[BLOCK_SIZE * BLOCK_SIZE] = {
@@ -696,16 +691,6 @@ void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_wid
     CHECK_CUDA(cudaFree(d_Q_matrix));
 }
 
-/* *
- * Effettua la DCT utilizzando la matrice di trasformazione
- * (TRANSFORM_MATRIX @ IMAGE) @ TRANSFORM_MATRIX.T
- * La matrice di trasformazione è 8x8
- * shared_matrix = TRANSFORM_MATRIX @ IMAGE
- * result = shared_matrix @ TRANSFORM_MATRIX.T
- *
- * Questo kernel va chiamato passando la grandezza di __shared___:
- * cuda_matrix_idct_paper<<<gridDim, blockDim, width*height*sizeof(float)>>>
- * */
 __global__ void cuda_matrix_dct_paper(const float* image_matrix, int img_size, const float* transform_matrix, float* result) {
     extern __shared__ float shared_matrix[];
     // CUDA related vars (ids)
