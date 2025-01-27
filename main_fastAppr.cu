@@ -43,7 +43,7 @@ void idct_all_blocks_cuda(const float* image_matrix, const int img_height, const
 
 int main()
 {
-    const char *filename = "camera256.tif.jpeg";
+    const char *filename = "baboon.tif.jpeg";
     int width, height, channels;
 
     /*// Load a jpeg image in image_matrix
@@ -375,7 +375,14 @@ __global__ void multiply_matrices(const float* A, const float* B, float* C, cons
 __global__ void cuda_matrix_dct_paper(const float* image_matrix, const int img_size, const float* transform_matrix, float* result) {
     float riga[BLOCK_SIZE];
     __shared__ float shared_transform[BLOCK_SIZE*BLOCK_SIZE];
-    __shared__ float shared_image[BLOCK_SIZE*BLOCK_SIZE];
+    __shared__ float shared_image[BLOCK_SIZE*BLOCK_SIZE*BLOCK_SIZE];
+    /* *
+     * shared_image logicamente divisa come un blocco 8x8 su una sola riga
+     * Sono 8 blocchi 8x8, 8 righe da 64 float.
+     * [[image_block_0]
+     *  [image_block_i]
+     *  [image_block_7]]
+     * */
     // CUDA related vars (ids)
     int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
     int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -389,8 +396,11 @@ __global__ void cuda_matrix_dct_paper(const float* image_matrix, const int img_s
     int offset_x = imageIdX * BLOCK_SIZE; // si "sposta" verso destra di BLOCK_SIZE
 
     float sums = 0;
+
     shared_transform[threadIdx.y * blockDim.x + threadIdx.x] = transform_matrix[threadIdx.y * blockDim.x + threadIdx.x];
-    //shared_image[] = image_matrix[(offset_y + offset_x) + threadIdx.x * img_size + j];
+    for(int i = 0;i < BLOCK_SIZE;i++)
+        shared_image[threadIdx.y*(BLOCK_SIZE*BLOCK_SIZE) + (threadIdx.x*BLOCK_SIZE) + i] = image_matrix[(offset_y+offset_x) + (threadIdx.x*img_size) + i];
+        //shared_image[VA CAMBIATO] = image_matrix[(offset_y) + (threadIdx.y*img_size) + (threadIdx.x*BLOCK_SIZE) + i];
     __syncthreads();
     /* *
      * Il seguente IF serve per evitare accessi illegali alla memoria.
@@ -404,7 +414,8 @@ __global__ void cuda_matrix_dct_paper(const float* image_matrix, const int img_s
     for (int i = 0;i < BLOCK_SIZE;i++) {
         for (int j = 0;j < BLOCK_SIZE;j++) {
             // sums += T [ sempre la stessa riga ] * X [ colonne in sequenza ]
-            sums += shared_transform[threadIdx.x * BLOCK_SIZE + j] * image_matrix[i + (offset_y + offset_x) + (j * img_size)];
+            //sums += shared_transform[threadIdx.x * BLOCK_SIZE + j] * image_matrix[i + (offset_y + offset_x) + (j * img_size)];
+            sums += shared_transform[threadIdx.x * BLOCK_SIZE + j] * shared_image[threadIdx.y*(BLOCK_SIZE*BLOCK_SIZE) + i + j*BLOCK_SIZE];
         }
         // TX [ riga ] = T[ riga ] * X[ colonne ] (TX[riga] = somma dei prodotti)
         // shared_matrix[(offset_y + offset_x) + threadIdx.x * img_size + i] = sums;
@@ -437,7 +448,14 @@ __global__ void cuda_matrix_dct_paper(const float* image_matrix, const int img_s
 __global__ void cuda_matrix_idct_paper(const float* image_matrix, const int img_size,const float* transform_matrix, float* result) {
     float riga[BLOCK_SIZE];
     __shared__ float shared_transform[BLOCK_SIZE*BLOCK_SIZE];
-    __shared__ float shared_image[BLOCK_SIZE*BLOCK_SIZE];
+    __shared__ float shared_image[BLOCK_SIZE*BLOCK_SIZE*BLOCK_SIZE];
+    /* *
+     * shared_image logicamente divisa come un blocco 8x8 su una sola riga
+     * Sono 8 blocchi 8x8, 8 righe da 64 float.
+     * [[image_block_0]
+     *  [image_block_i]
+     *  [image_block_7]]
+     * */
     // CUDA related vars (ids)
     int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
     int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -452,7 +470,9 @@ __global__ void cuda_matrix_idct_paper(const float* image_matrix, const int img_
 
     float sums = 0;
     shared_transform[threadIdx.y * blockDim.x + threadIdx.x] = transform_matrix[threadIdx.y * blockDim.x + threadIdx.x];
-    //shared_image[] = image_matrix[];
+    for(int i = 0;i < BLOCK_SIZE;i++)
+        shared_image[threadIdx.y*(BLOCK_SIZE*BLOCK_SIZE) + (threadIdx.x*BLOCK_SIZE) + i] = image_matrix[(offset_y+offset_x) + (threadIdx.x*img_size) + i];
+        //shared_image[VA CAMBIATO] = image_matrix[(offset_y) + (threadIdx.y*img_size) + (threadIdx.x*BLOCK_SIZE) + i];
     __syncthreads();
     /* *
      * Il seguente IF serve per evitare accessi illegali alla memoria.
@@ -467,7 +487,8 @@ __global__ void cuda_matrix_idct_paper(const float* image_matrix, const int img_
     for (int i = 0;i < BLOCK_SIZE;i++) {
         for (int j = 0;j < BLOCK_SIZE;j++) {
             // sums += TX [ sempre la stessa colonna ] * T [ colonne in sequenza ]
-            sums += shared_transform[threadIdx.x + j * BLOCK_SIZE] * image_matrix[i + (offset_y + offset_x) + (j * img_size)];
+            //sums += shared_transform[threadIdx.x + j * BLOCK_SIZE] * image_matrix[i + (offset_y + offset_x) + (j * img_size)];
+            sums += shared_transform[threadIdx.x + j * BLOCK_SIZE] * shared_image[threadIdx.y*(BLOCK_SIZE*BLOCK_SIZE) + i + j*BLOCK_SIZE];
         }
         // TX [ riga ] = T[ colonna ] * X[ colonne ] (TX[riga] = somma dei prodotti)
         // shared_matrix[(offset_y + offset_x) + threadIdx.x * img_size + i] = sums;
