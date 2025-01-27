@@ -374,6 +374,8 @@ __global__ void multiply_matrices(const float* A, const float* B, float* C, cons
  * */
 __global__ void cuda_matrix_dct_paper(const float* image_matrix, const int img_size, const float* transform_matrix, float* result) {
     float riga[BLOCK_SIZE];
+    __shared__ float shared_transform[BLOCK_SIZE*BLOCK_SIZE];
+    __shared__ float shared_image[BLOCK_SIZE*BLOCK_SIZE];
     // CUDA related vars (ids)
     int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
     int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -387,6 +389,9 @@ __global__ void cuda_matrix_dct_paper(const float* image_matrix, const int img_s
     int offset_x = imageIdX * BLOCK_SIZE; // si "sposta" verso destra di BLOCK_SIZE
 
     float sums = 0;
+    shared_transform[threadIdx.y * blockDim.x + threadIdx.x] = transform_matrix[threadIdx.y * blockDim.x + threadIdx.x];
+    //shared_image[] = image_matrix[(offset_y + offset_x) + threadIdx.x * img_size + j];
+    __syncthreads();
     /* *
      * Il seguente IF serve per evitare accessi illegali alla memoria.
      * Essendo che adesso i Threads sono mappati sul blocco immagine,
@@ -399,7 +404,7 @@ __global__ void cuda_matrix_dct_paper(const float* image_matrix, const int img_s
     for (int i = 0;i < BLOCK_SIZE;i++) {
         for (int j = 0;j < BLOCK_SIZE;j++) {
             // sums += T [ sempre la stessa riga ] * X [ colonne in sequenza ]
-            sums += transform_matrix[threadIdx.x * BLOCK_SIZE + j] * image_matrix[i + (offset_y + offset_x) + (j * img_size)];
+            sums += shared_transform[threadIdx.x * BLOCK_SIZE + j] * image_matrix[i + (offset_y + offset_x) + (j * img_size)];
         }
         // TX [ riga ] = T[ riga ] * X[ colonne ] (TX[riga] = somma dei prodotti)
         // shared_matrix[(offset_y + offset_x) + threadIdx.x * img_size + i] = sums;
@@ -414,7 +419,7 @@ __global__ void cuda_matrix_dct_paper(const float* image_matrix, const int img_s
         for (int j = 0;j < BLOCK_SIZE;j++) {
             // sums += TX [ sempre la stessa riga ] * T [ righe in sequenza ]
             // sums += shared_matrix[(offset_y + offset_x) + threadIdx.x * img_size + j] * transform_matrix[i * 8 + j];
-            sums+= riga[j] * transform_matrix[i * BLOCK_SIZE + j];
+            sums+= riga[j] * shared_transform[i * BLOCK_SIZE + j];
         }
         // result [ riga ] = TX [ riga ] * T [ righe ]
         result[(offset_y + offset_x) + (threadIdx.x * img_size) + i] = sums;
@@ -431,6 +436,8 @@ __global__ void cuda_matrix_dct_paper(const float* image_matrix, const int img_s
  * */
 __global__ void cuda_matrix_idct_paper(const float* image_matrix, const int img_size,const float* transform_matrix, float* result) {
     float riga[BLOCK_SIZE];
+    __shared__ float shared_transform[BLOCK_SIZE*BLOCK_SIZE];
+    __shared__ float shared_image[BLOCK_SIZE*BLOCK_SIZE];
     // CUDA related vars (ids)
     int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
     int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -444,6 +451,9 @@ __global__ void cuda_matrix_idct_paper(const float* image_matrix, const int img_
     int offset_x = imageIdX * BLOCK_SIZE; // si "sposta" verso destra di BLOCK_SIZE
 
     float sums = 0;
+    shared_transform[threadIdx.y * blockDim.x + threadIdx.x] = transform_matrix[threadIdx.y * blockDim.x + threadIdx.x];
+    //shared_image[] = image_matrix[];
+    __syncthreads();
     /* *
      * Il seguente IF serve per evitare accessi illegali alla memoria.
      * Essendo che adesso i Threads sono mappati sul blocco immagine,
@@ -457,7 +467,7 @@ __global__ void cuda_matrix_idct_paper(const float* image_matrix, const int img_
     for (int i = 0;i < BLOCK_SIZE;i++) {
         for (int j = 0;j < BLOCK_SIZE;j++) {
             // sums += TX [ sempre la stessa colonna ] * T [ colonne in sequenza ]
-            sums += transform_matrix[threadIdx.x + j * BLOCK_SIZE] * image_matrix[i + (offset_y + offset_x) + (j * img_size)];
+            sums += shared_transform[threadIdx.x + j * BLOCK_SIZE] * image_matrix[i + (offset_y + offset_x) + (j * img_size)];
         }
         // TX [ riga ] = T[ colonna ] * X[ colonne ] (TX[riga] = somma dei prodotti)
         // shared_matrix[(offset_y + offset_x) + threadIdx.x * img_size + i] = sums;
@@ -472,7 +482,7 @@ __global__ void cuda_matrix_idct_paper(const float* image_matrix, const int img_
         for (int j = 0;j < BLOCK_SIZE;j++) {
             // sums += TX [ sempre la stessa riga ] * T [ colonne in sequenza ]
             // sums += shared_matrix[(offset_y + offset_x) + threadIdx.x * img_size + j] * transform_matrix[i + j * BLOCK_SIZE];
-            sums += riga[j] * transform_matrix[i + j * 8];
+            sums += riga[j] * shared_transform[i + j * 8];
         }
         // result [ riga ] = TX [ riga ] * T [ colonne ]
         result[(offset_y + offset_x) + (threadIdx.x * img_size) + i] = sums;
