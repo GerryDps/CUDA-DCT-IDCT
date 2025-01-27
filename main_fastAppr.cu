@@ -170,7 +170,12 @@ int main()
     {
         fprintf(stderr, "Error: Failed to save image\n");
     }
-
+    CHECK_CUDA(cudaFree(d_A));
+    CHECK_CUDA(cudaFree(d_B));
+    CHECK_CUDA(cudaFree(d_C));
+    CHECK_CUDA(cudaFree(d_E));
+    free(image_matrix_uc);
+    free(image_matrix_float);
     return 0;
 }
 
@@ -526,7 +531,7 @@ void dct_all_blocks_cuda(float* image_matrix, const int img_height, const int im
     // Calcola il tempo totale
     float milliseconds = 0;
     CHECK_CUDA(cudaEventElapsedTime(&milliseconds, start, stop));
-    printf("Tempo di esecuzione DCT: %f ms\n",milliseconds);
+    printf("DCT (%d,%d): %f ms\n",img_width,img_height,milliseconds);
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp2));
@@ -584,7 +589,7 @@ void idct_all_blocks_cuda(const float* image_matrix, const int img_height, const
     // Calcola il tempo totale
     float milliseconds = 0;
     CHECK_CUDA(cudaEventElapsedTime(&milliseconds, start, stop));
-    printf("Tempo di esecuzione DCT: %f ms\n",milliseconds);
+    printf("IDCT (%d,%d): %f ms\n",img_width,img_height,milliseconds);
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp2));

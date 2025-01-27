@@ -501,7 +501,7 @@ void dct_all_blocks_cuda(float* image_matrix, const int img_height, const int im
     // Calcola il tempo totale
     float milliseconds = 0;
     CHECK_CUDA(cudaEventElapsedTime(&milliseconds, start, stop));
-    printf("Tempo di esecuzione DCT: %f ms\n",milliseconds);
+    printf("DCT (%d,%d): %f ms\n",img_width,img_height,milliseconds);
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp2));
@@ -542,7 +542,7 @@ void idct_all_blocks_cuda(const float* image_matrix, const int img_height, const
     // Calcola il tempo totale
     float milliseconds = 0;
     CHECK_CUDA(cudaEventElapsedTime(&milliseconds, start, stop));
-    printf("Tempo di esecuzione DCT: %f ms\n",milliseconds);
+    printf("IDCT (%d,%d): %f ms\n",img_width,img_height,milliseconds);
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp2));
