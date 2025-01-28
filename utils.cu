@@ -1,4 +1,5 @@
 #include <math.h>
+#include "utils.cuh"
 // Convert an unsigned char image matrix to an float image matrix
 void convertToFloat(const unsigned char *input, float *output, const size_t size)
 {
