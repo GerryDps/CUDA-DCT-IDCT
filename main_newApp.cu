@@ -22,30 +22,30 @@
 __constant__ float const_quant_matrix[BLOCK_SIZE*BLOCK_SIZE];
 
 // Kernels CUDA per le operazioni aritmetiche element-wise
-__global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, int size);
-__global__ void add_matrix_scalar(const float* A, const float scalar, float* C, int size);
+__global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, const int size);
+__global__ void add_matrix_scalar(const float* A, const float scalar, float* C, const int size);
 
-__global__ void divide_matrices(const float* A, const float* B, float* C, int size);
-__global__ void multiply_matrices(const float* A, const float* B, float* C, int size);
+__global__ void divide_matrices(const float* A, const float* B, float* C, const int size);
+__global__ void multiply_matrices(const float* A, const float* B, float* C, const int size);
 
 // Host function to load image as matrix
 static unsigned char *load_jpeg_as_matrix(const char *filename, int *width, int *height, int *channels);
 
 // Host function to save matrix as jpeg
-int save_grayscale_jpeg(const char *filename, unsigned char *image_matrix, int width, int height, int quality);
+int save_grayscale_jpeg(const char *filename, unsigned char *image_matrix, const int width, const int height, const int quality);
 
 // Utils
-void convertToFloat(unsigned char *input, float *output, int size);
-void convertToUnsignedChar(const float *image_float, unsigned char *image_char, int size);
+void convertToFloat(const unsigned char *input, float *output, const int size);
+void convertToUnsignedChar(const float *image_float, unsigned char *image_char, const int size);
 
 // Using cuda kernels to compute the DCT and the IDCT
 // Those FUNC use intenal dct/idct kernel function, differs according to implementation used.
-void dct_all_blocks_cuda(float* image_matrix, int img_height, int img_width, const float* transform_matrix, float* result);
-void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_width, const float* transform_matrix, float* result);
+void dct_all_blocks_cuda(float* image_matrix, const int img_height, const int img_width, const float* transform_matrix, float* result);
+void idct_all_blocks_cuda(const float* image_matrix, const int img_height, const int img_width, const float* transform_matrix, float* result);
 
 int main()
 {
-    const char *filename = "camera256.tif.jpeg";
+    const char *filename = "baboon.tif.jpeg";
     int width, height, channels;
 
     /*// Load a jpeg image in image_matrix
@@ -69,7 +69,7 @@ int main()
     srand(41);
     for (int i = 0; i < height;i++) {
         for (int j = 0; j < width; j++) {
-            image_matrix_float[i * width + j] = rand() % 256;;
+            image_matrix_float[i * width + j] = rand() % 256;
         }
     }
 
@@ -185,7 +185,12 @@ int main()
     {
         fprintf(stderr, "Error: Failed to save image\n");
     }
-
+    CHECK_CUDA(cudaFree(d_A));
+    CHECK_CUDA(cudaFree(d_B));
+    CHECK_CUDA(cudaFree(d_C));
+    CHECK_CUDA(cudaFree(d_E));
+    free(image_matrix_uc);
+    free(image_matrix_float);
     return 0;
 }
 
@@ -248,7 +253,7 @@ static unsigned char *load_jpeg_as_matrix(const char *filename, int *width, int 
     return image_matrix;
 }
 
-int save_grayscale_jpeg(const char *filename, unsigned char *image_matrix, int width, int height, int quality)
+int save_grayscale_jpeg(const char *filename, unsigned char *image_matrix, const int width, const int height, const int quality)
 {
     // Strutture di compressione JPEG
     struct jpeg_compress_struct cinfo;
@@ -302,7 +307,7 @@ int save_grayscale_jpeg(const char *filename, unsigned char *image_matrix, int w
 }
 
 // Convert an unsigned char image matrix to an float image matrix
-void convertToFloat(unsigned char *input, float *output, int size)
+void convertToFloat(const unsigned char *input, float *output, const int size)
 {
     for (int i = 0; i < size; i++) {
         output[i] = (float)input[i];
@@ -310,7 +315,7 @@ void convertToFloat(unsigned char *input, float *output, int size)
 }
 
 // Convert a float image matrix to unsigned char image matrix
-void convertToUnsignedChar(const float *image_float, unsigned char *image_char, int size) {
+void convertToUnsignedChar(const float *image_float, unsigned char *image_char, const int size) {
     for (int i = 0; i < size; i++) {
         image_char[i] = (unsigned char)fminf(fmaxf(image_float[i], 0.0f), 255.0f); // Clamp tra 0 e 255
         //image_char[i] = (unsigned char)image_float[i]; // Clamp tra 0 e 255
@@ -324,7 +329,7 @@ global = Id_y * gridDim.x * blockDim.x + Id_x
 C[global] =  A[global] / quantization_matrix[threadIdx.x * BLOCK_SIZE + threadIdx.y]*/
 
 // Kernel CUDA per la sottrazione element-wise matrice - scalare
-__global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, int size) {
+__global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, const int size) {
     // Calcola l'indice globale del thread
     int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
     int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -337,7 +342,7 @@ __global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, 
 }
 
 // Kernel CUDA per l'addizione element-wise matrice - scalare
-__global__ void add_matrix_scalar(const float* A, const float scalar, float* C, int size) {
+__global__ void add_matrix_scalar(const float* A, const float scalar, float* C, const int size) {
     // Calcola l'indice globale del thread
     int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
     int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -350,7 +355,7 @@ __global__ void add_matrix_scalar(const float* A, const float scalar, float* C, 
 }
 
 // Kernel CUDA per la divisione elemento per elemento
-__global__ void divide_matrices(const float* A, const float* B, float* C, int size) {
+__global__ void divide_matrices(const float* A, const float* B, float* C, const int size) {
     // Calcola l'indice globale del thread
     int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
     int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -363,7 +368,7 @@ __global__ void divide_matrices(const float* A, const float* B, float* C, int si
 }
 
 // Kernel CUDA per la moltiplicazione elemento per elemento
-__global__ void multiply_matrices(const float* A, const float* B, float* C, int size) {
+__global__ void multiply_matrices(const float* A, const float* B, float* C, const int size) {
     // Calcola l'indice globale del thread
     int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
     int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -385,6 +390,7 @@ __global__ void multiply_matrices(const float* A, const float* B, float* C, int 
 __global__ void cuda_matrix_dct(const float* image_matrix, const float* transform_matrix, float* result) {
     __shared__ float shared_matrix[BLOCK_SIZE*BLOCK_SIZE];
     __shared__ float shared_transform[BLOCK_SIZE*BLOCK_SIZE];
+    // __shared__ float shared_image[BLOCK_SIZE*BLOCK_SIZE];
     // Calcola l'indice globale del thread
     int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
     int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -394,6 +400,7 @@ __global__ void cuda_matrix_dct(const float* image_matrix, const float* transfor
 
     float sums = 0;
     shared_transform[threadIdx.y * blockDim.x + threadIdx.x] = transform_matrix[threadIdx.y * blockDim.x + threadIdx.x];
+    // shared_image[threadIdx.y * blockDim.x + threadIdx.x] = image_matrix[global];
     __syncthreads();
 
     // result = transform_matrix @ image_matrix
@@ -401,6 +408,7 @@ __global__ void cuda_matrix_dct(const float* image_matrix, const float* transfor
     for (int i = 0;i < blockDim.x;i++) {
         //sums += transform_matrix[threadIdx.y * blockDim.x + i] * image_matrix[(offset_y * gridDim.x * blockDim.x) + i * (gridDim.x * blockDim.x) + Id_x];
         sums += shared_transform[threadIdx.y * blockDim.x + i] * image_matrix[(offset_y * gridDim.x * blockDim.x) + i * (gridDim.x * blockDim.x) + Id_x];
+        // sums += shared_transform[threadIdx.y * blockDim.x + i] * shared_image[threadIdx.x + i * blockDim.x];
     }
     // result[Id_y * gridDim.x * blockDim.x + Id_x] = sums;
     shared_matrix[threadIdx.y * blockDim.x + threadIdx.x] = sums;
@@ -427,6 +435,7 @@ __global__ void cuda_matrix_dct(const float* image_matrix, const float* transfor
 __global__ void cuda_matrix_idct(const float* image_matrix, const float* transform_matrix, float* result) {
     __shared__ float shared_matrix[BLOCK_SIZE*BLOCK_SIZE];
     __shared__ float shared_transform[BLOCK_SIZE*BLOCK_SIZE];
+    // __shared__ float shared_image[BLOCK_SIZE*BLOCK_SIZE];
     // Calcola l'indice globale del thread
     int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
     int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -436,12 +445,14 @@ __global__ void cuda_matrix_idct(const float* image_matrix, const float* transfo
 
     float sums = 0;
     shared_transform[threadIdx.y * blockDim.x + threadIdx.x] = transform_matrix[threadIdx.y * blockDim.x + threadIdx.x];
+    // shared_image[threadIdx.y * blockDim.x + threadIdx.x] = image_matrix[global];
     __syncthreads();
 
     // result = transform_matrix.T @ dct_matrix
     // result = transform_matrix[colonne](x trasposta) @ image_matrix[colonne]
     for (int i = 0;i < blockDim.x;i++) {
         sums += shared_transform[i * blockDim.x + threadIdx.y] * image_matrix[(offset_y * gridDim.x * blockDim.x) + i * (gridDim.x * blockDim.x) + Id_x];
+        // sums += shared_transform[threadIdx.y * blockDim.x + i] * shared_image[threadIdx.x + i * blockDim.x];
     }
     shared_matrix[threadIdx.y * blockDim.x + threadIdx.x] = sums;
     sums = 0;
@@ -455,7 +466,7 @@ __global__ void cuda_matrix_idct(const float* image_matrix, const float* transfo
     result[Id_y * gridDim.x * blockDim.x + Id_x] = sums;
 }
 
-void dct_all_blocks_cuda(float* image_matrix, int img_height, int img_width, const float* transform_matrix, float* result)
+void dct_all_blocks_cuda(float* image_matrix, const int img_height, const int img_width, const float* transform_matrix, float* result)
 {
     // Pre-alloca memoria GPU per i blocchi temporanei
     float *temp2,*d_Q_matrix;
@@ -490,13 +501,13 @@ void dct_all_blocks_cuda(float* image_matrix, int img_height, int img_width, con
     // Calcola il tempo totale
     float milliseconds = 0;
     CHECK_CUDA(cudaEventElapsedTime(&milliseconds, start, stop));
-    printf("Tempo di esecuzione DCT: %f ms\n",milliseconds);
+    printf("DCT (%d,%d): %f ms\n",img_width,img_height,milliseconds);
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp2));
 }
 
-void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_width, const float* transform_matrix, float* result)
+void idct_all_blocks_cuda(const float* image_matrix, const int img_height, const int img_width, const float* transform_matrix, float* result)
 {
     // Pre-alloca memoria GPU per i blocchi temporanei
     float* temp2, *d_Q_matrix;
@@ -531,7 +542,7 @@ void idct_all_blocks_cuda(const float* image_matrix, int img_height, int img_wid
     // Calcola il tempo totale
     float milliseconds = 0;
     CHECK_CUDA(cudaEventElapsedTime(&milliseconds, start, stop));
-    printf("Tempo di esecuzione DCT: %f ms\n",milliseconds);
+    printf("IDCT (%d,%d): %f ms\n",img_width,img_height,milliseconds);
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp2));

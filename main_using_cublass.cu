@@ -204,7 +204,12 @@ int main()
 
     // Cleanup
     CHECK_CUBLAS(cublasDestroy(handle));
-
+    CHECK_CUDA(cudaFree(d_A));
+    CHECK_CUDA(cudaFree(d_B));
+    CHECK_CUDA(cudaFree(d_C));
+    CHECK_CUDA(cudaFree(d_E));
+    free(image_matrix_uc);
+    free(image_matrix_float);
     return 0;
 }
 
@@ -451,7 +456,7 @@ void dct_all_blocks(float *image_matrix, int img_height, int img_width, const fl
     // Calcola il tempo totale
     float milliseconds = 0;
     CHECK_CUDA(cudaEventElapsedTime(&milliseconds, start, stop));
-    printf("Tempo di esecuzione DCT: %f ms\n",milliseconds);
+    printf("DCT (%d,%d): %f ms\n",img_width,img_height,milliseconds);
 
 
     // Libera memoria GPU
@@ -519,7 +524,7 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
     // Calcola il tempo totale
     float milliseconds = 0;
     CHECK_CUDA(cudaEventElapsedTime(&milliseconds, start, stop));
-    printf("Tempo di esecuzione IDCT: %f ms\n",milliseconds);
+    printf("IDCT (%d,%d): %f ms\n",img_width,img_height,milliseconds);
 
     // Libera memoria GPU
     CHECK_CUDA(cudaFree(temp1));
