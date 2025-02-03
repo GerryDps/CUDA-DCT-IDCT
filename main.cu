@@ -32,6 +32,32 @@
 
 __constant__ float const_quant_matrix[BLOCK_SIZE*BLOCK_SIZE];
 
+// Funzione per espandere la matrice A sulla diagonale della matrice B
+void expand_matrix_diagonal(float *A, int size, float *B) {
+    // Controllo che size sia un multiplo di 8
+    if (size % 8 != 0 || size < 8) {
+        printf("Errore: la dimensione deve essere un multiplo di 8 ed almeno 8.\n");
+        return;
+    }
+
+    // Inizializzazione di B con zeri
+    for (int i = 0; i < size * size; i++) {
+        B[i] = 0.0f;
+    }
+
+    // Numero di blocchi sulla diagonale
+    int num_blocks = size / 8;
+
+    // Inserimento della matrice A sulla diagonale di B
+    for (int k = 0; k < num_blocks; k++) {
+        for (int i = 0; i < 8; i++) {
+            for (int j = 0; j < 8; j++) {
+                B[(k * 8 + i) * size + (k * 8 + j)] = A[i * 8 + j];
+            }
+        }
+    }
+}
+
 // Kernels CUDA per le operazioni aritmetiche element-wise
 __global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, int size);
 __global__ void add_matrix_scalar(const float* A, const float scalar, float* C, int size);

@@ -52,7 +52,7 @@ void convertToUnsignedChar(const float *image_float, unsigned char *image_char, 
 
 // Using CUBLAS HANDLE to compute the DCT and the IDCT
 __host__ void dct_all_blocks(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
-__host__ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
+__host__ void idct_all_blocks(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
 
 int main()
 {
@@ -419,7 +419,7 @@ void dct_all_blocks(float *image_matrix, int img_height, int img_width, const fl
     float beta = 0.0f;
 
     // Pre-alloca memoria GPU per i blocchi temporanei
-    float *temp1, *temp2, *transform_matrix_expanded, *d_Q_matrix;
+    float *temp1, *transform_matrix_expanded, *d_Q_matrix;
     CHECK_CUDA(cudaMalloc(&temp1, img_width * img_height * sizeof(float)));
     CHECK_CUDA(cudaMalloc(&transform_matrix_expanded, img_width * img_height * sizeof(float)));
     CHECK_CUDA(cudaGetSymbolAddress((void**)&d_Q_matrix,const_quant_matrix));
@@ -489,7 +489,7 @@ void dct_all_blocks(float *image_matrix, int img_height, int img_width, const fl
 /* *
  * Funzione per l'applicazione della "de-compressione" (IN_COMPRESSED->de-quantization->idct->UPscaling->OUT_IMAGE)
  * */
-void idct_all_blocks(const float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle)
+void idct_all_blocks(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle)
 {
     float alpha = 1.0f;
     float beta = 0.0f;
@@ -521,7 +521,7 @@ void idct_all_blocks(const float *image_matrix, int img_height, int img_width, c
 
     // Compute temp1 = transform_matrix.T @ image_block
     CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, img_height, img_width, img_width,
-                             &alpha, transform_matrix_expanded, img_height, image_block, img_width,
+                             &alpha, transform_matrix_expanded, img_height, image_matrix, img_width,
                              &beta, temp1, img_height));
 
     // Compute temp1 @ transform_matrix
