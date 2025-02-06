@@ -1,4 +1,4 @@
-//%%cuda --compiler-args "--library cublas --library jpeg"
+//%%cuda --compiler-args "--library cublas --library jpeg -arch=sm_75"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -442,22 +442,6 @@ void dct_all_blocks(float *image_matrix, int img_height, int img_width, const fl
 
     // expand the T matrix to the same size of the image
     upgrade_T_matrix<<<gridDim,blockDim>>>(transform_matrix,transform_matrix_expanded,img_width * img_height);
-
-    /* cublasSgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t transb,
-       int m, int n, int k,
-       const float *alpha,
-       const float *A, int lda,
-       const float *B, int ldb,
-       const float  *beta,
-       float *C, int ldc)
-     * Dimensioni passate a cublasSgemm:
-        M = img_height (righe di A e C)
-        N = img_width (colonne di B e C)
-        K = img_width (colonne di A, righe di B)
-        lda = img_height (leading dimension di A)
-        ldb = img_width (leading dimension di B)
-        ldc = img_height (leading dimension di C)
-    */
 
     // Calcola temp1 = transform_matrix_expanded @ image_block
     CHECK_CUBLAS(cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, img_height, img_width, img_width,

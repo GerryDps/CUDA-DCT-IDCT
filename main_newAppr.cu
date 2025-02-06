@@ -1,4 +1,4 @@
-//%%cuda --compiler-args "--library cublas --library jpeg"
+//%%cuda --compiler-args "--library cublas --library jpeg -arch=sm_75"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -48,7 +48,7 @@ int main()
     const char *filename = "baboon.tif.jpeg";
     size_t width, height, channels;
 
-    /*// Load a jpeg image in image_matrix
+    // Load a jpeg image in image_matrix
     unsigned char *image_matrix = load_jpeg_as_matrix(filename, &width, &height, &channels);
     if (!image_matrix)
     {
@@ -59,9 +59,9 @@ int main()
     float *image_matrix_float;
     image_matrix_float = (float *)malloc(width * height * sizeof(float));
     convertToFloat(image_matrix, image_matrix_float, width * height * channels);
-    free(image_matrix);*/
+    free(image_matrix);
 
-    width = 4096;
+    /*width = 4096;
     height = 4096;
 
     float* image_matrix_float;
@@ -71,7 +71,7 @@ int main()
         for (int j = 0; j < width; j++) {
             image_matrix_float[i * width + j] = rand() % 256;
         }
-    }
+    }*/
 
     printf("Printing the 8x8 of image[] (matrix from the jpeg image w:%d h:%d)\n",width,height);
     for (int i = 0; i < BLOCK_SIZE; i++){
@@ -452,7 +452,7 @@ __global__ void cuda_matrix_idct(const float* image_matrix, const float* transfo
     // result = transform_matrix[colonne](x trasposta) @ image_matrix[colonne]
     for (int i = 0;i < blockDim.x;i++) {
         // sums += shared_transform[i * blockDim.x + threadIdx.y] * image_matrix[(offset_y * gridDim.x * blockDim.x) + i * (gridDim.x * blockDim.x) + Id_x];
-        sums += shared_transform[threadIdx.y * blockDim.x + i] * shared_image[threadIdx.x + i * blockDim.x];
+        sums += shared_transform[i * blockDim.x + threadIdx.y] * shared_image[threadIdx.x + i * blockDim.x];
     }
     shared_matrix[threadIdx.y * blockDim.x + threadIdx.x] = sums;
     sums = 0;

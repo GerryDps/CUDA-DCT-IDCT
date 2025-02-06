@@ -1,4 +1,4 @@
-//%%cuda --compiler-args "--library cublas --library jpeg"
+//%%cuda --compiler-args "--library cublas --library jpeg -arch=sm_75"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
