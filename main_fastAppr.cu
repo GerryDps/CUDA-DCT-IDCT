@@ -316,9 +316,9 @@ C[global] =  A[global] / quantization_matrix[threadIdx.x * BLOCK_SIZE + threadId
 // Kernel CUDA per la sottrazione element-wise matrice - scalare
 __global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, const int size) {
     // Calcola l'indice globale del thread
-    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
-    int global = Id_y * gridDim.x * blockDim.x + Id_x;
+    const int Id_x = blockIdx.x * BLOCK_SIZE + threadIdx.x;
+    const int Id_y = blockIdx.y * BLOCK_SIZE + threadIdx.y;
+    const int global = Id_y * gridDim.x * BLOCK_SIZE + Id_x;
 
     // Controlla che l'indice sia all'interno dei limiti
     if (global < size) {
@@ -329,9 +329,9 @@ __global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, 
 // Kernel CUDA per l'addizione element-wise matrice - scalare
 __global__ void add_matrix_scalar(const float* A, const float scalar, float* C, const int size) {
     // Calcola l'indice globale del thread
-    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
-    int global = Id_y * gridDim.x * blockDim.x + Id_x;
+    const int Id_x = blockIdx.x * BLOCK_SIZE + threadIdx.x;
+    const int Id_y = blockIdx.y * BLOCK_SIZE + threadIdx.y;
+    const int global = Id_y * gridDim.x * BLOCK_SIZE + Id_x;
 
     // Controlla che l'indice sia all'interno dei limiti
     if (global < size) {
@@ -342,26 +342,26 @@ __global__ void add_matrix_scalar(const float* A, const float scalar, float* C, 
 // Kernel CUDA per la divisione elemento per elemento
 __global__ void divide_matrices(const float* A, const float* B, float* C, const int size) {
     // Calcola l'indice globale del thread
-    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
-    int global = Id_y * gridDim.x * blockDim.x + Id_x;
+    const int Id_x = blockIdx.x * BLOCK_SIZE + threadIdx.x;
+    const int Id_y = blockIdx.y * BLOCK_SIZE + threadIdx.y;
+    const int global = Id_y * gridDim.x * BLOCK_SIZE + Id_x;
 
     // Controlla che l'indice sia all'interno dei limiti
     if (global < size) {
-        C[global] =  round(A[global] / B[threadIdx.x * blockDim.x + threadIdx.y]);
+        C[global] =  round(A[global] / B[threadIdx.y * BLOCK_SIZE + threadIdx.x]);
     }
 }
 
 // Kernel CUDA per la moltiplicazione elemento per elemento
 __global__ void multiply_matrices(const float* A, const float* B, float* C, const int size) {
     // Calcola l'indice globale del thread
-    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
-    int global = Id_y * gridDim.x * blockDim.x + Id_x;
+    const int Id_x = blockIdx.x * BLOCK_SIZE + threadIdx.x;
+    const int Id_y = blockIdx.y * BLOCK_SIZE + threadIdx.y;
+    const int global = Id_y * gridDim.x * BLOCK_SIZE + Id_x;
 
     // Controlla che l'indice sia all'interno dei limiti
     if (global < size) {
-        C[global] =  A[global] * B[threadIdx.x * blockDim.x + threadIdx.y];
+        C[global] =  A[global] * B[threadIdx.y * BLOCK_SIZE + threadIdx.x];
     }
 }
 

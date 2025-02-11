@@ -331,9 +331,9 @@ C[global] =  A[global] / quantization_matrix[threadIdx.x * BLOCK_SIZE + threadId
 // Kernel CUDA per la sottrazione element-wise matrice - scalare
 __global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, const int size) {
     // Calcola l'indice globale del thread
-    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
-    int global = Id_y * gridDim.x * blockDim.x + Id_x;
+    const int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
+    const int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
+    const int global = Id_y * gridDim.x * blockDim.x + Id_x;
 
     // Controlla che l'indice sia all'interno dei limiti
     if (global < size) {
@@ -344,9 +344,9 @@ __global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, 
 // Kernel CUDA per l'addizione element-wise matrice - scalare
 __global__ void add_matrix_scalar(const float* A, const float scalar, float* C, const int size) {
     // Calcola l'indice globale del thread
-    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
-    int global = Id_y * gridDim.x * blockDim.x + Id_x;
+    const int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
+    const int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
+    const int global = Id_y * gridDim.x * blockDim.x + Id_x;
 
     // Controlla che l'indice sia all'interno dei limiti
     if (global < size) {
@@ -357,26 +357,26 @@ __global__ void add_matrix_scalar(const float* A, const float scalar, float* C, 
 // Kernel CUDA per la divisione elemento per elemento
 __global__ void divide_matrices(const float* A, const float* B, float* C, const int size) {
     // Calcola l'indice globale del thread
-    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
-    int global = Id_y * gridDim.x * blockDim.x + Id_x;
+    const int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
+    const int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
+    const int global = Id_y * gridDim.x * blockDim.x + Id_x;
 
     // Controlla che l'indice sia all'interno dei limiti
     if (global < size) {
-        C[global] =  round(A[global] / B[threadIdx.x * blockDim.x + threadIdx.y]);
+        C[global] =  round(A[global] / B[threadIdx.y * blockDim.x + threadIdx.x]);
     }
 }
 
 // Kernel CUDA per la moltiplicazione elemento per elemento
 __global__ void multiply_matrices(const float* A, const float* B, float* C, const int size) {
     // Calcola l'indice globale del thread
-    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
-    int global = Id_y * gridDim.x * blockDim.x + Id_x;
+    const int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
+    const int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
+    const int global = Id_y * gridDim.x * blockDim.x + Id_x;
 
     // Controlla che l'indice sia all'interno dei limiti
     if (global < size) {
-        C[global] =  A[global] * B[threadIdx.x * blockDim.x + threadIdx.y];
+        C[global] =  A[global] * B[threadIdx.y * blockDim.x + threadIdx.x];
     }
 }
 
@@ -392,37 +392,35 @@ __global__ void cuda_matrix_dct(const float* image_matrix, const float* transfor
     __shared__ float shared_transform[BLOCK_SIZE*BLOCK_SIZE];
     __shared__ float shared_image[BLOCK_SIZE*BLOCK_SIZE];
     // Calcola l'indice globale del thread
-    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
-    int global = Id_y * gridDim.x * blockDim.x + Id_x;
-    int offset_x = blockIdx.x * blockDim.x;
-    int offset_y = blockIdx.y * blockDim.y;
+    const int Id_x = blockIdx.x * BLOCK_SIZE + threadIdx.x;
+    const int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
+    const int global = Id_y * gridDim.x * BLOCK_SIZE + Id_x;
 
     float sums = 0;
-    shared_transform[threadIdx.y * blockDim.x + threadIdx.x] = transform_matrix[threadIdx.y * blockDim.x + threadIdx.x];
-    shared_image[threadIdx.y * blockDim.x + threadIdx.x] = image_matrix[global];
+    shared_transform[threadIdx.y * BLOCK_SIZE + threadIdx.x] = transform_matrix[threadIdx.y * BLOCK_SIZE + threadIdx.x];
+    shared_image[threadIdx.y * BLOCK_SIZE + threadIdx.x] = image_matrix[global];
     __syncthreads();
 
     // result = transform_matrix @ image_matrix
     // result = transform_matrix[righe] @ image_matrix[colonne]
-    for (int i = 0;i < blockDim.x;i++) {
-        //sums += transform_matrix[threadIdx.y * blockDim.x + i] * image_matrix[(offset_y * gridDim.x * blockDim.x) + i * (gridDim.x * blockDim.x) + Id_x];
-        // sums += shared_transform[threadIdx.y * blockDim.x + i] * image_matrix[(offset_y * gridDim.x * blockDim.x) + i * (gridDim.x * blockDim.x) + Id_x];
-        sums += shared_transform[threadIdx.y * blockDim.x + i] * shared_image[threadIdx.x + i * blockDim.x];
+    for (int i = 0;i < BLOCK_SIZE;i++) {
+        //sums += transform_matrix[threadIdx.y * BLOCK_SIZE + i] * image_matrix[(offset_y * gridDim.x * BLOCK_SIZE) + i * (gridDim.x * BLOCK_SIZE) + Id_x];
+        //sums += shared_transform[threadIdx.y * BLOCK_SIZE + i] * image_matrix[(offset_y * gridDim.x * BLOCK_SIZE) + i * (gridDim.x * BLOCK_SIZE) + Id_x];
+        sums += shared_transform[threadIdx.y * BLOCK_SIZE + i] * shared_image[threadIdx.x + i * BLOCK_SIZE];
     }
-    // result[Id_y * gridDim.x * blockDim.x + Id_x] = sums;
-    shared_matrix[threadIdx.y * blockDim.x + threadIdx.x] = sums;
+    // result[Id_y * gridDim.x * BLOCK_SIZE + Id_x] = sums;
+    shared_matrix[threadIdx.y * BLOCK_SIZE + threadIdx.x] = sums;
     sums = 0;
     // Devo attendere il completamento della DOT precedente
     __syncthreads();
 
     // result = result(precedente) @ transform_matrix.T (trasposta)
     // result = result(precedente)[righe] @ transform_matrix[righe] (perchè la trasposta)
-    for (int i = 0;i < blockDim.x;i++) {
-        //sums += result[Id_y * (gridDim.x * blockDim.x) + offset_x + i] * transform_matrix[threadIdx.x * blockDim.x + i];
-        sums += shared_matrix[threadIdx.y * blockDim.x + i] * shared_transform[threadIdx.x * blockDim.x + i];
+    for (int i = 0;i < BLOCK_SIZE;i++) {
+        //sums += result[Id_y * (gridDim.x * BLOCK_SIZE) + offset_x + i] * transform_matrix[threadIdx.x * BLOCK_SIZE + i];
+        sums += shared_matrix[threadIdx.y * BLOCK_SIZE + i] * shared_transform[threadIdx.x * BLOCK_SIZE + i];
     }
-    result[Id_y * gridDim.x * blockDim.x + Id_x] = sums;
+    result[Id_y * gridDim.x * BLOCK_SIZE + Id_x] = sums;
 }
 
 /* *
@@ -437,33 +435,31 @@ __global__ void cuda_matrix_idct(const float* image_matrix, const float* transfo
     __shared__ float shared_transform[BLOCK_SIZE*BLOCK_SIZE];
     __shared__ float shared_image[BLOCK_SIZE*BLOCK_SIZE];
     // Calcola l'indice globale del thread
-    int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
-    int global = Id_y * gridDim.x * blockDim.x + Id_x;
-    int offset_x = blockIdx.x * blockDim.x;
-    int offset_y = blockIdx.y * blockDim.y;
+    const int Id_x = blockIdx.x * BLOCK_SIZE + threadIdx.x;
+    const int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
+    const int global = Id_y * gridDim.x * BLOCK_SIZE + Id_x;
 
     float sums = 0;
-    shared_transform[threadIdx.y * blockDim.x + threadIdx.x] = transform_matrix[threadIdx.y * blockDim.x + threadIdx.x];
-    shared_image[threadIdx.y * blockDim.x + threadIdx.x] = image_matrix[global];
+    shared_transform[threadIdx.y * BLOCK_SIZE + threadIdx.x] = transform_matrix[threadIdx.y * BLOCK_SIZE + threadIdx.x];
+    shared_image[threadIdx.y * BLOCK_SIZE + threadIdx.x] = image_matrix[global];
     __syncthreads();
 
     // result = transform_matrix.T @ dct_matrix
     // result = transform_matrix[colonne](x trasposta) @ image_matrix[colonne]
-    for (int i = 0;i < blockDim.x;i++) {
-        // sums += shared_transform[i * blockDim.x + threadIdx.y] * image_matrix[(offset_y * gridDim.x * blockDim.x) + i * (gridDim.x * blockDim.x) + Id_x];
-        sums += shared_transform[i * blockDim.x + threadIdx.y] * shared_image[threadIdx.x + i * blockDim.x];
+    for (int i = 0;i < BLOCK_SIZE;i++) {
+        //sums += shared_transform[i * BLOCK_SIZE + threadIdx.y] * image_matrix[(offset_y * gridDim.x * BLOCK_SIZE) + i * (gridDim.x * BLOCK_SIZE) + Id_x];
+        sums += shared_transform[i * BLOCK_SIZE + threadIdx.y] * shared_image[threadIdx.x + i * BLOCK_SIZE];
     }
-    shared_matrix[threadIdx.y * blockDim.x + threadIdx.x] = sums;
+    shared_matrix[threadIdx.y * BLOCK_SIZE + threadIdx.x] = sums;
     sums = 0;
     __syncthreads();
 
     // result = result(precedente) @ transform_matrix
     // result = result[righe] @ transform_matrix[colonne]
-    for (int i = 0;i < blockDim.x;i++) {
-        sums += shared_matrix[threadIdx.y * blockDim.x + i] * shared_transform[i * blockDim.x + threadIdx.x];
+    for (int i = 0;i < BLOCK_SIZE;i++) {
+        sums += shared_matrix[threadIdx.y * BLOCK_SIZE + i] * shared_transform[i * BLOCK_SIZE + threadIdx.x];
     }
-    result[Id_y * gridDim.x * blockDim.x + Id_x] = sums;
+    result[Id_y * gridDim.x * BLOCK_SIZE + Id_x] = sums;
 }
 
 void dct_all_blocks_cuda(float* image_matrix, const int img_height, const int img_width, const float* transform_matrix, float* result)
@@ -475,8 +471,8 @@ void dct_all_blocks_cuda(float* image_matrix, const int img_height, const int im
 
     // Configurazione della griglia e dei blocchi
     // -> using BLOCK SIZE
-    int gridx = img_width / BLOCK_SIZE;
-    int gridy = img_height / BLOCK_SIZE;
+    const int gridx = img_width / BLOCK_SIZE;
+    const int gridy = img_height / BLOCK_SIZE;
     dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
     dim3 gridDim(gridx, gridy);
 
@@ -516,8 +512,8 @@ void idct_all_blocks_cuda(const float* image_matrix, const int img_height, const
 
     // Configurazione della griglia e dei blocchi
     // -> using BLOCK_SIZE
-    int gridx = img_width / BLOCK_SIZE;
-    int gridy = img_height / BLOCK_SIZE;
+    const int gridx = img_width / BLOCK_SIZE;
+    const int gridy = img_height / BLOCK_SIZE;
     dim3 blockDim(BLOCK_SIZE, BLOCK_SIZE);
     dim3 gridDim(gridx, gridy);
 
