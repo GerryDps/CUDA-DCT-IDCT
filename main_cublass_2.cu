@@ -29,7 +29,6 @@
     }
 
 #define BLOCK_SIZE 8
-#define IMAGE_SIZE 256
 
 __constant__ float const_quant_matrix[BLOCK_SIZE*BLOCK_SIZE];
 
