@@ -1,3 +1,7 @@
+#include <math.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <cuda_runtime.h>
 #include "utils_kernels.cuh"
 
 // Kernel CUDA per la sottrazione element-wise matrice - scalare

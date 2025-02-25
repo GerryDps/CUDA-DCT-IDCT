@@ -1,9 +1,9 @@
 //%%cuda --compiler-args "--library cublas --library jpeg -arch=sm_75"
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h>
-#include <jpeglib.h>
 #include <cuda_runtime.h>
+#include "utils.cuh"
+#include "utils_kernels.cuh"
 
 // Check CUDA error
 #define CHECK_CUDA(call)                                          \
@@ -16,26 +16,7 @@
         }                                                         \
     }
 
-#define BLOCK_SIZE 8
-
 __constant__ float const_quant_matrix[BLOCK_SIZE*BLOCK_SIZE];
-
-// Kernels CUDA per le operazioni aritmetiche element-wise
-__global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, const int size);
-__global__ void add_matrix_scalar(const float* A, const float scalar, float* C, const int size);
-
-__global__ void divide_matrices(const float* A, const float* B, float* C, const int size);
-__global__ void multiply_matrices(const float* A, const float* B, float* C, const int size);
-
-// Host function to load image as matrix
-static unsigned char *load_jpeg_as_matrix(const char *filename, int *width, int *height, int *channels);
-
-// Host function to save matrix as jpeg
-int save_grayscale_jpeg(const char *filename, unsigned char *image_matrix, const int width, const int height, const int quality);
-
-// Utils
-void convertToFloat(const unsigned char *input, float *output, const int size);
-void convertToUnsignedChar(const float *image_float, unsigned char *image_char, const int size);
 
 // Using cuda kernels to compute the DCT and the IDCT
 // Those FUNC use intenal dct/idct kernel function, differs according to implementation used.
@@ -45,7 +26,7 @@ void idct_all_blocks_cuda(const float* image_matrix, const int img_height, const
 int main()
 {
     const char *filename = "baboon.tif.jpeg";
-    size_t width, height, channels;
+    int width, height, channels;
 
     // Load a jpeg image in image_matrix
     unsigned char *image_matrix = load_jpeg_as_matrix(filename, &width, &height, &channels);
@@ -159,7 +140,7 @@ int main()
 
     // Salva l'immagine in formato JPEG
     const char *filename_out = "output.jpg";
-    int quality = 100; // Qualità JPEG (0-100)
+    int quality = 100; // Qualita JPEG (0-100)
 
     // allocate host memory for the usigned char image
     unsigned char *image_matrix_uc;
@@ -193,196 +174,10 @@ int main()
     return 0;
 }
 
-// Host function to load image as matrix
-static unsigned char *load_jpeg_as_matrix(const char *filename, int *width, int *height, int *channels)
-{
-    struct jpeg_decompress_struct cinfo;
-    struct jpeg_error_mgr jerr;
-
-    FILE *infile = fopen(filename, "rb");
-    if (!infile)
-    {
-        fprintf(stderr, "Error: Unable to open file %s\n", filename);
-        return NULL;
-    }
-
-    // Set up error handling
-    cinfo.err = jpeg_std_error(&jerr);
-    jpeg_create_decompress(&cinfo);
-
-    // Specify the source of the data (the input file)
-    jpeg_stdio_src(&cinfo, infile);
-
-    // Read the JPEG header to get image info
-    jpeg_read_header(&cinfo, TRUE);
-
-    // Start decompression
-    jpeg_start_decompress(&cinfo);
-
-    *width = cinfo.output_width;
-    *height = cinfo.output_height;
-    *channels = cinfo.output_components; // 1 for grayscale, 3 for RGB
-    int colorspace = cinfo.out_color_space;
-    printf("Color Space: %d\n", colorspace);
-
-    // Allocate memory for the pixel matrix
-    unsigned long matrix_size = (*width) * (*height) * (*channels);
-    unsigned char *image_matrix = (unsigned char *)malloc(matrix_size);
-    if (!image_matrix)
-    {
-        fprintf(stderr, "Error: Unable to allocate memory for image matrix\n");
-        jpeg_destroy_decompress(&cinfo);
-        fclose(infile);
-        return NULL;
-    }
-
-    // Read scanlines into the matrix row by row
-    unsigned char *row_pointer[1];
-    while (cinfo.output_scanline < cinfo.output_height)
-    {
-        row_pointer[0] = image_matrix + (cinfo.output_scanline * (*width) * (*channels));
-        jpeg_read_scanlines(&cinfo, row_pointer, 1);
-    }
-
-    // Finish decompression and clean up
-    jpeg_finish_decompress(&cinfo);
-    jpeg_destroy_decompress(&cinfo);
-    fclose(infile);
-
-    return image_matrix;
-}
-
-int save_grayscale_jpeg(const char *filename, unsigned char *image_matrix, const int width, const int height, const int quality)
-{
-    // Strutture di compressione JPEG
-    struct jpeg_compress_struct cinfo;
-    struct jpeg_error_mgr jerr;
-
-    // Imposta il gestore degli errori
-    cinfo.err = jpeg_std_error(&jerr);
-
-    // Inizializza l'oggetto di compressione JPEG
-    jpeg_create_compress(&cinfo);
-
-    // Apri il file in scrittura
-    FILE *outfile = fopen(filename, "wb");
-    if (!outfile)
-    {
-        fprintf(stderr, "Error: Unable to open file %s for writing\n", filename);
-        return 0;
-    }
-
-    // Associa il file di output al compressore
-    jpeg_stdio_dest(&cinfo, outfile);
-
-    // Imposta i parametri dell'immagine JPEG
-    cinfo.image_width = width;            // Larghezza in pixel
-    cinfo.image_height = height;          // Altezza in pixel
-    cinfo.input_components = 1;           // Numero di canali (1 per scala di grigi)
-    cinfo.in_color_space = JCS_GRAYSCALE; // Colore: scala di grigi
-
-    // Imposta i parametri di default e modifica la qualità
-    jpeg_set_defaults(&cinfo);
-    jpeg_set_quality(&cinfo, quality, TRUE);
-
-    // Inizia la compressione
-    jpeg_start_compress(&cinfo, TRUE);
-
-    // Scrive ogni riga dell'immagine
-    while (cinfo.next_scanline < cinfo.image_height)
-    {
-        unsigned char *row_pointer = &image_matrix[cinfo.next_scanline * width];
-        jpeg_write_scanlines(&cinfo, &row_pointer, 1);
-    }
-
-    // Termina la compressione
-    jpeg_finish_compress(&cinfo);
-
-    // Libera le risorse
-    fclose(outfile);
-    jpeg_destroy_compress(&cinfo);
-
-    return 1;
-}
-
-// Convert an unsigned char image matrix to an float image matrix
-void convertToFloat(const unsigned char *input, float *output, const int size)
-{
-    for (int i = 0; i < size; i++) {
-        output[i] = (float)input[i];
-    }
-}
-
-// Convert a float image matrix to unsigned char image matrix
-void convertToUnsignedChar(const float *image_float, unsigned char *image_char, const int size) {
-    for (int i = 0; i < size; i++) {
-        image_char[i] = (unsigned char)fminf(fmaxf(image_float[i], 0.0f), 255.0f); // Clamp tra 0 e 255
-        //image_char[i] = (unsigned char)image_float[i]; // Clamp tra 0 e 255
-    }
-}
-
-/*quantization_matrix[8][8]
-Id_x = gridId.x * blockDim.x + threadIdx.x
-Id_y = gridID.y * blockDim.y + threadIdx.y
-global = Id_y * gridDim.x * blockDim.x + Id_x
-C[global] =  A[global] / quantization_matrix[threadIdx.x * BLOCK_SIZE + threadIdx.y]*/
-
-// Kernel CUDA per la sottrazione element-wise matrice - scalare
-__global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, const int size) {
-    // Calcola l'indice globale del thread
-    const int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    const int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
-    const int global = Id_y * gridDim.x * blockDim.x + Id_x;
-
-    // Controlla che l'indice sia all'interno dei limiti
-    if (global < size) {
-        C[global] =  A[global] - scalar;
-    }
-}
-
-// Kernel CUDA per l'addizione element-wise matrice - scalare
-__global__ void add_matrix_scalar(const float* A, const float scalar, float* C, const int size) {
-    // Calcola l'indice globale del thread
-    const int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    const int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
-    const int global = Id_y * gridDim.x * blockDim.x + Id_x;
-
-    // Controlla che l'indice sia all'interno dei limiti
-    if (global < size) {
-        C[global] =  A[global] + scalar;
-    }
-}
-
-// Kernel CUDA per la divisione elemento per elemento
-__global__ void divide_matrices(const float* A, const float* B, float* C, const int size) {
-    // Calcola l'indice globale del thread
-    const int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    const int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
-    const int global = Id_y * gridDim.x * blockDim.x + Id_x;
-
-    // Controlla che l'indice sia all'interno dei limiti
-    if (global < size) {
-        C[global] =  round(A[global] / B[threadIdx.y * blockDim.x + threadIdx.x]);
-    }
-}
-
-// Kernel CUDA per la moltiplicazione elemento per elemento
-__global__ void multiply_matrices(const float* A, const float* B, float* C, const int size) {
-    // Calcola l'indice globale del thread
-    const int Id_x = blockIdx.x * blockDim.x + threadIdx.x;
-    const int Id_y = blockIdx.y * blockDim.y + threadIdx.y;
-    const int global = Id_y * gridDim.x * blockDim.x + Id_x;
-
-    // Controlla che l'indice sia all'interno dei limiti
-    if (global < size) {
-        C[global] =  A[global] * B[threadIdx.y * blockDim.x + threadIdx.x];
-    }
-}
-
 /* *
  * Effettua la DCT utilizzando la matrice di trasformazione
  * (TRASFORM_MATRIX @ IMAGE_MATRIX) @ TRANSFORM_MATRIX.T
- * La matrice di trasformazione è 8x8
+ * La matrice di trasformazione e 8x8
  * result = TRASFORM_MATRIX @ IMAGE_MATRIX
  * result = result @ TRANSFORM_MATRIX.T
  * */
@@ -414,7 +209,7 @@ __global__ void cuda_matrix_dct(const float* image_matrix, const float* transfor
     __syncthreads();
 
     // result = result(precedente) @ transform_matrix.T (trasposta)
-    // result = result(precedente)[righe] @ transform_matrix[righe] (perchè la trasposta)
+    // result = result(precedente)[righe] @ transform_matrix[righe] (perche la trasposta)
     for (int i = 0;i < BLOCK_SIZE;i++) {
         //sums += result[Id_y * (gridDim.x * BLOCK_SIZE) + offset_x + i] * transform_matrix[threadIdx.x * BLOCK_SIZE + i];
         sums += shared_matrix[threadIdx.y * BLOCK_SIZE + i] * shared_transform[threadIdx.x * BLOCK_SIZE + i];
@@ -425,7 +220,7 @@ __global__ void cuda_matrix_dct(const float* image_matrix, const float* transfor
 /* *
  * Effettua la IDCT utilizzando la matrice di trasformazione
  * (TRANSFORM_MATRIX.T @ DCT_MATRIX) @ TRANSFORM_MATRIX
- * La matrice di trasformazione è 8x8
+ * La matrice di trasformazione e 8x8
  * result = TRANSFORM_MATRIX.T @ DCT_MATRIX
  * result = result @ TRANSFORM_MATRIX
  * */

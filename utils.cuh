@@ -9,7 +9,7 @@ void convertToUnsignedChar(const float *image_float, unsigned char *image_char, 
 bool arrays_are_close(const float* arr1, const float* arr2, const size_t size, const float tol);
 
 // Load the "*filename" image and return its pointer. (fills width, height and channels vars)
-static unsigned char *load_jpeg_as_matrix(const char *filename, int *width, int *height, int *channels);
+unsigned char *load_jpeg_as_matrix(const char *filename, int *width, int *height, int *channels);
 // Save the *image_matrix with name *filename
 int save_grayscale_jpeg(const char *filename, unsigned char *image_matrix, const int width, const int height, const int quality);
 

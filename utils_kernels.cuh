@@ -1,6 +1,7 @@
 #ifndef PROJECT_CUDA_UTILS_KERNELS_CUH
 #define PROJECT_CUDA_UTILS_KERNELS_CUH
 
+#define BLOCK_SIZE 8
 // Kernel CUDA per la sottrazione element-wise matrice - scalare
 __global__ void sub_matrix_scalar(const float* A, const float scalar, float* C, const int size);
 

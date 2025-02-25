@@ -1,4 +1,9 @@
+#include <stdio.h>
+#include <stddef.h>
+#include <stdbool.h>
+#include <stdlib.h>
 #include <math.h>
+#include <jpeglib.h>
 #include "utils.cuh"
 
 // Convert an unsigned char image matrix to an float image matrix
@@ -30,7 +35,7 @@ bool arrays_are_close(const float* arr1, const float* arr2, const size_t size, c
 }
 
 // Load the "*filename" image and return its pointer. (fills width, height and channels vars)
-static unsigned char *load_jpeg_as_matrix(const char *filename, int *width, int *height, int *channels)
+unsigned char *load_jpeg_as_matrix(const char *filename, int *width, int *height, int *channels)
 {
     // Jpeg decompression struct
     struct jpeg_decompress_struct cinfo;
