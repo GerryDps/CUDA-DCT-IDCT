@@ -36,13 +36,18 @@ __constant__ float const_quant_matrix[BLOCK_SIZE*BLOCK_SIZE];
 __host__ void dct_all_blocks(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
 __host__ void idct_all_blocks(float *image_matrix, int img_height, int img_width, const float *transform_matrix, float *result, cublasHandle_t handle);
 
-int main()
+int main(int argc, char *argv[])
 {
+    if (argc != 3){
+        fprintf(stderr, "Usage: %s <input_image> <output_image> \n", argv[0]);
+        return 1;
+    }
 
-    const char *filename = "camera256.tif.jpeg";
+    const char *filename = argv[1];
+    const char *filename_out = argv[2];
     int width, height, channels;
 
-    /*// Load a jpeg image in image_matrix
+    // Load a jpeg image in image_matrix
     unsigned char *image_matrix = load_jpeg_as_matrix(filename, &width, &height, &channels);
     if (!image_matrix)
     {
@@ -53,19 +58,7 @@ int main()
     float *image_matrix_float;
     image_matrix_float = (float *)malloc(width * height * sizeof(float));
     convertToFloat(image_matrix, image_matrix_float, width * height * channels);
-    free(image_matrix);*/
-
-    width = 4096;
-    height = 4096;
-
-    float* image_matrix_float;
-    image_matrix_float = (float*)malloc(width * height * sizeof(float));
-    srand(41);
-    for (int i = 0; i < height;i++) {
-        for (int j = 0; j < width; j++) {
-            image_matrix_float[i * width + j] = rand() % 256;;
-        }
-    }
+    free(image_matrix);
 
     printf("Printing the 8x8 of image[] (matrix from the jpeg image w:%d h:%d)\n",width,height);
     for (int i = 0; i < BLOCK_SIZE; i++){
@@ -156,7 +149,6 @@ int main()
     printf("\n\n");
 
     // Salva l'immagine in formato JPEG
-    const char *filename_out = "output.jpg";
     int quality = 100; // Qualita JPEG (0-100)
 
     // allocate host memory for the usigned char image
