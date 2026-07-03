@@ -1,6 +1,6 @@
 # A GPU Accelerated DCT Implementation for Image Compression
 
-[Cardone A.](mailto:ancardone@unisa.it), [Di Pascale G.](mailto:dipascalegerardo@gmail.com) (2027).
+[Cardone A.](mailto:ancardone@unisa.it), [Di Pascale G.](mailto:dipascalegerardo@gmail.com) (2026).
 
 A GPU Accelerated DCT Implementation for Image Compression. In: Gervasi, O., et al. Computational Science and Its Applications – ICCSA 2026 Workshops. ICCSA 2026. Lecture Notes in Computer Science, vol 16763. Springer, Cham. https://doi.org/10.1007/978-3-032-30530-5_12
 
